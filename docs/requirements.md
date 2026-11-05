@@ -1,9 +1,9 @@
-# Đặc tả yêu cầu – HDL Design Manager (tên tạm: `hdltool`)
+# Đặc tả yêu cầu – Vietsemi HDL Studio
 
 | | |
 |---|---|
-| Phiên bản | 0.8 (chi tiết hộp thoại State Machine Properties và BD Object Properties; ModuleWare) |
-| Ngày | 2026-10-30 |
+| Phiên bản | 0.9 (cập nhật theo bản cài đặt: tên sản phẩm, Python/PySide6, chạy trên Windows) |
+| Ngày | 2026-11-05 |
 | Tham chiếu | Tài liệu người dùng của một tool thương mại tương tự (chỉ dùng để tham khảo tính năng, không sao chép nội dung) |
 | Trạng thái | Chờ người dùng duyệt và bổ sung yêu cầu chức năng chi tiết |
 
@@ -23,7 +23,7 @@ Dữ liệu design được lưu dưới dạng **file source Verilog/SystemVeri
 
 ### 1.2 Trong phạm vi
 - Ngôn ngữ: Verilog (IEEE 1364-2005) và SystemVerilog (IEEE 1800-2017).
-- Hệ điều hành: CentOS Stream 9 (ưu tiên), sau đó CentOS 7 và CentOS 10.
+- Hệ điều hành: CentOS Stream 9 (ưu tiên), sau đó CentOS 7 và CentOS 10. Tool cũng chạy trên Windows (máy có HDS 2021.1, dùng để đối chiếu với HDS).
 
 ### 1.3 Ngoài phạm vi (ít nhất ở giai đoạn đầu)
 | Hạng mục | Lý do |
@@ -33,7 +33,7 @@ Dữ liệu design được lưu dưới dạng **file source Verilog/SystemVeri
 | Register generator, trợ lý UVM, requirements tracing | Không thuộc 3 chức năng chính |
 | Lint hoặc kiểm tra quy tắc coding (kiểu DesignChecker) | P3, cân nhắc sau |
 | In ấn và xuất tài liệu HTML | P3 |
-| Chạy trên Windows, OLE | Không cần |
+| OLE | Không cần |
 
 ---
 
@@ -354,7 +354,7 @@ Khi sinh **SystemVerilog**: kiểu 1 khối thành `always_ff`. Kiểu 2 và 3 k
 ### 3.10 Thiết lập và task (PREF / TSK)
 | ID | Yêu cầu | Ưu tiên |
 |---|---|---|
-| PREF-1 | Có 2 tầng preference: **team** (file dùng chung) và **user** (`~/.config/hdltool`) | P1 |
+| PREF-1 | Có 2 tầng preference: **team** (file dùng chung) và **user** (`~/.config/vietsemi-hdl-studio`) | P1 |
 | PREF-2 | Hộp thoại Preferences cho editor, generate, style và đặt tên file | P1 |
 | PREF-3 | **Main Settings – General**: tự chuyển tên design unit/view sang chữ thường; nút toolbar *Remain active* / *Activate once only*; hiển thị tên file dạng logic hoặc tên thật; *Single User* / *Team Mode*; thư mục tạm; file thuộc tính project; ngôn ngữ mặc định cho view mới (đồ họa: Verilog 2005, text: SystemVerilog) | P1 |
 | PREF-4 | **Verilog Options – File**: danh sách đuôi file hợp lệ, đuôi mặc định cho source, file sinh ra và SystemVerilog; quy tắc tên file source (`%(module_name).%(ext)`, giữ nguyên hoa/thường) và file sinh ra (`%(unit).%(ext)`, luôn chữ thường); search path mặc định | P1 |
@@ -390,7 +390,7 @@ Khi sinh **SystemVerilog**: kiểu 1 khối thành `always_ff`. Kiểu 2 và 3 k
 | ID | Yêu cầu |
 |---|---|
 | NFR-1 | Chạy trên **CentOS Stream 9** (x86_64). Sau đó mở rộng sang CentOS 7 và 10 |
-| NFR-2 | Công nghệ: C++20, Qt 6, CMake. Parser SystemVerilog dùng **slang** |
+| NFR-2 | Công nghệ: Python 3.10+ (đang dùng 3.12), Qt 6 qua **PySide6**. Parser SystemVerilog dùng **slang** (pyslang). Đóng gói bằng PyInstaller |
 | NFR-3 | Chạy được qua X11 forwarding, VNC và XWayland. Không bắt buộc OpenGL |
 | NFR-4 | Hiệu năng: mở project khoảng 2.000 file và 200.000 dòng trong dưới 10 giây. Parse lại 1 file trong dưới 300 ms |
 | NFR-5 | Mọi file project, preference và view đồ họa đều là **text**, merge được bằng Git |

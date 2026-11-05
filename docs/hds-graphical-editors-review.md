@@ -141,7 +141,7 @@ Ký hiệu:
 | Removing Design Hierarchy / Add Hierarchy Dialog Box | ❌ | 📷21 |
 | Generics and Parameters (10 mục) | 🟡 | Có bảng Parameters của sơ đồ; trang Parameters của instance đọc đúng bảng symbol (giữ nguyên `` `CFG_... ``). Chưa có grouping/filtering, chưa có đồng bộ Generics/Parameters |
 | Opening Block and Component Views | ✅ | Open Down, double-click, Open As |
-| New Block Diagram or IBD View Initialization | ❌ | *New Design Content* chưa tạo được Block Diagram mới ("not editable yet") |
+| New Block Diagram or IBD View Initialization | 🟡 | *New Design Content* tạo được Block Diagram mới, chọn ngôn ngữ Verilog 2005 / SystemVerilog (xem [uart-compare.md](uart-compare.md)). IBD ngoài phạm vi |
 | Mixed Language Designs | ⛔ | |
 
 ---
