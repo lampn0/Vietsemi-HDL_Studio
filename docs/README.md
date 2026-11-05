@@ -5,6 +5,7 @@
 | [user-guide.md](user-guide.md) | using the tool: projects, libraries, editors, generation, sessions, locks |
 | [architecture.md](architecture.md) | how the code is organised and how data flows (start here to change the code) |
 | [development.md](development.md) | set-up, repository layout, coding conventions, tests, packaging |
+| [qt-guide.md](qt-guide.md) | Qt 6 / PySide6 as this code uses it: concepts, components by group with their functions and signals, the patterns of `src/gui/` (Vietnamese) |
 | [roadmap.md](roadmap.md) | what works today and what is not done yet |
 | [requirements.md](requirements.md) | the requirements specification (Vietnamese), with requirement ids |
 | [hds-file-format.md](hds-file-format.md) | the HDS file formats: `.hdp`, folders, `.sm`, `.bd`, `.sb`, `.lck` (Vietnamese) |
