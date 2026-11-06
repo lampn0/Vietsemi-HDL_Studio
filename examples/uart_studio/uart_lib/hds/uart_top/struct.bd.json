@@ -1,5 +1,5 @@
 {
-  "format": "dolphin-hds-bd",
+  "format": "hdlstudio-bd",
   "version": 1,
   "view": {
     "library": "uart_lib",

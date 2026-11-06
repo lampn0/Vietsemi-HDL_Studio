@@ -1,14 +1,15 @@
-"""Read and write HDS project files (.hdp) – an INI-like format where a
+"""Read and write legacy project files (.hdp) – an INI-like format where a
 section may repeat a key (one library with several HDL directories)."""
 from __future__ import annotations
 
 import os
 import re
 from dataclasses import dataclass, field
+from formats.names import META_DIR, PROJECT_DIR_VAR
 
-LIB_SECTIONS = ('hdl', 'hds', 'includes_search_path', 'library_files_inclusion', 'library_type',
+LIB_SECTIONS = ('hdl', META_DIR, 'includes_search_path', 'library_files_inclusion', 'library_type',
                 'protected_library_traversal')
-# the type name HDS writes for protected (read-only) libraries
+# the type name the legacy tool writes for protected (read-only) libraries
 _TYPE_IN = {'regular': 'regular', 'standard': 'protected', 'protected': 'protected',
             'downstream_only': 'downstream', 'downstream': 'downstream'}
 _TYPE_OUT = {'regular': 'regular', 'protected': 'standard', 'downstream': 'downstream_only'}
@@ -68,7 +69,7 @@ def read_hdp(path: str) -> HdpFile:
 
 
 def write_hdp(hdp: HdpFile) -> None:
-    """Write the entries back in the INI layout HDS uses (`key = value`), atomically."""
+    """Write the entries back in the INI layout the legacy tool uses (`key = value`), atomically."""
     lines = []
     for sec in hdp.sections():
         lines.append(f'[{sec}]')
@@ -82,7 +83,7 @@ def write_hdp(hdp: HdpFile) -> None:
 def expand_path(raw: str, project_dir: str, extra: dict[str, str] | None = None) -> tuple[str, list[str]]:
     """Expand $HDS_PROJECT_DIR, $VAR and ${VAR}. Returns (path, names of unset variables)."""
     env = dict(os.environ)
-    env['HDS_PROJECT_DIR'] = project_dir
+    env[PROJECT_DIR_VAR] = project_dir
     if extra:
         env.update(extra)
     missing = []
@@ -101,12 +102,12 @@ def expand_path(raw: str, project_dir: str, extra: dict[str, str] | None = None)
 
 
 def type_from_hdp(value: str) -> str:
-    """Library type read from [library_type]: 'regular', 'protected' (HDS "standard", read-only) or
+    """Library type read from [library_type]: 'regular', 'protected' (the legacy tool "standard", read-only) or
     'downstream'. Unknown values count as regular.
     """
     return _TYPE_IN.get(value.strip().lower(), 'regular')
 
 
 def type_to_hdp(value: str) -> str:
-    """The [library_type] word HDS writes for a library type (inverse of type_from_hdp)."""
+    """The [library_type] word the legacy tool writes for a library type (inverse of type_from_hdp)."""
     return _TYPE_OUT.get(value, 'regular')

@@ -1,7 +1,7 @@
 """State Machine Properties and Verilog Compiler Directives: the machine-level dialogs of the
-HDS 2021.1 state diagram editor (Diagram > State Machine Properties..., Diagram > Compiler
+legacy state diagram editor (Diagram > State Machine Properties..., Diagram > Compiler
 Directives..., the diagram's popup menu, a double-click on a declaration block), laid out as
-HDS shows them on gc_control_fsm (screenshots tests/hds_gui/out/smp_*.png, compdir.png).
+The legacy tool shows them on gc_control_fsm.
 
 State Machine Properties: a page tree on the left, the page on the right, OK / Cancel / Apply /
 Help under them. The title names the page and, for the pages of one machine, the machine:
@@ -24,7 +24,7 @@ Help under them. The title names the page and, for the pages of one machine, the
 
 What HDL Studio keeps (and writes back to the .sm) is editable: the state signal names, the
 encoding style and manual codes, the statement block texts, which blocks are shown, the
-registered / clocked affixes. Everything else is shown as HDS shows it for this machine but
+registered / clocked affixes. Everything else is shown as the legacy tool shows it for this machine but
 disabled: HDL Studio generates one style (synchronous, 3 always blocks, case) and has no place
 for those options yet.
 """
@@ -53,7 +53,7 @@ PAGES = [
     ('user_decls', 'Pre/Post User Declarations', 'declarations', False),
     ('internal', 'Internal Signals', 'machine', True),
 ]
-# Encoding > Style radio buttons as HDS places them (row, column) -> HDL Studio encoding style;
+# Encoding > Style radio buttons as the legacy tool places them (row, column) -> HDL Studio encoding style;
 # None: a style HDL Studio does not generate (shown disabled)
 ENC_STYLES = [('Sequential', 'sequential', 0, 0), ('1-Hot', 'onehot', 0, 1), ('2-Hot', None, 1, 0),
               ('Gray', 'gray', 1, 1), ('Johnson', 'johnson', 2, 0), ('Manual', 'manual', 2, 1)]
@@ -70,13 +70,13 @@ def _text_box() -> QPlainTextEdit:
 
 
 def _off(w):
-    """A control HDS has and HDL Studio does not keep yet: shown, not editable."""
+    """A control the legacy tool has and HDL Studio does not keep yet: shown, not editable."""
     w.setEnabled(False)
     return w
 
 
 def _editor_button() -> QToolButton:
-    """HDS's small "edit in the text editor" button next to each text; not in HDL Studio yet."""
+    """The legacy tool's small "edit in the text editor" button next to each text; not in HDL Studio yet."""
     b = QToolButton()
     b.setIcon(b.style().standardIcon(QStyle.SP_FileDialogDetailedView))
     b.setToolTip('Edit in a text editor (not in HDL Studio yet)')
@@ -84,7 +84,7 @@ def _editor_button() -> QToolButton:
 
 
 def _caption_row(caption: str, visible: QCheckBox | None) -> QHBoxLayout:
-    """A text's caption, then (right) its Visible box and the editor button, as HDS lays them."""
+    """A text's caption, then (right) its Visible box and the editor button, as the legacy tool lays them."""
     row = QHBoxLayout()
     row.addWidget(QLabel(caption))
     row.addStretch(1)
@@ -95,7 +95,7 @@ def _caption_row(caption: str, visible: QCheckBox | None) -> QHBoxLayout:
 
 
 def _code_digits(code: str) -> str:
-    """5'b00010 -> 00010, 5'd3 -> 00011: HDS shows a state's code as its bits only."""
+    """5'b00010 -> 00010, 5'd3 -> 00011: the legacy tool shows a state's code as its bits only."""
     if "'d" in code:
         width, value = code.split("'d", 1)
         try:
@@ -189,14 +189,14 @@ class StateMachinePropertiesDialog(QDialog):
         lay = QVBoxLayout(w)
         row = QHBoxLayout()
         row.addWidget(QLabel('Concurrent Machine Name:'))
-        # renamed with Diagram > Rename Concurrent Machine... in HDS; not in HDL Studio yet
+        # renamed with Diagram > Rename Concurrent Machine... in the legacy tool; not in HDL Studio yet
         row.addWidget(_off(QLineEdit(self.machine.name)), 1)
         lay.addLayout(row)
         lay.addStretch(1)
         return w
 
     def _generation_page(self) -> QWidget:
-        """Generation page: HDS's machine / style / pragma options, shown disabled (HDL Studio generates
+        """Generation page: the legacy tool's machine / style / pragma options, shown disabled (HDL Studio generates
         one style: synchronous, 3 always blocks, case).
         """
         w = QWidget()
@@ -248,7 +248,7 @@ class StateMachinePropertiesDialog(QDialog):
         lay = QVBoxLayout(w)
         names = QGroupBox('State Signal Names')
         g = QGridLayout(names)
-        # HDS leaves the boxes empty for the default names; HDL Studio shows them as hints
+        # The legacy tool leaves the boxes empty for the default names; HDL Studio shows them as hints
         self.cur_name = QLineEdit('' if self.machine.current_state_name == 'current_state'
                                   else self.machine.current_state_name)
         self.cur_name.setPlaceholderText('current_state')
@@ -408,12 +408,12 @@ class StateMachinePropertiesDialog(QDialog):
         lay = QVBoxLayout(w)
         self.module_vis = QCheckBox('Visible'); self.module_vis.setChecked('module' not in self.view.decl_hidden)
         lay.addLayout(_caption_row('Module Declarations:', self.module_vis))
-        # the generated declarations of the module: HDS shows them here, HDL Studio does not yet
+        # the generated declarations of the module: the legacy tool shows them here, HDL Studio does not yet
         lay.addWidget(_off(_text_box()), 1)
         return w
 
     def _user_decls_page(self) -> QWidget:
-        """Pre/Post User Declarations page (shown as HDS has it, not kept by HDL Studio yet)."""
+        """Pre/Post User Declarations page (shown as the legacy tool has it, not kept by HDL Studio yet)."""
         w = QWidget()
         lay = QVBoxLayout(w)
         box = QGroupBox('User Declaration')
@@ -467,7 +467,7 @@ class StateMachinePropertiesDialog(QDialog):
     # -- apply ----------------------------------------------------------------------------
     def apply(self) -> bool:
         """Write the editable fields to the view / machine. Empty names and affixes fall back to
-        HDS's defaults (current_state, next_state, _r, _cld)."""
+        The legacy tool's defaults (current_state, next_state, _r, _cld)."""
         if self.readonly:
             return True
         v, m = self.view, self.machine

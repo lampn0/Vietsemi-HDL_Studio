@@ -1,5 +1,5 @@
-"""SM Object Properties: the state diagram object dialog of HDS 2021.1 (a double-click on a state
-away from its name, or on a transition), laid out as HDS shows it.
+"""SM Object Properties: the state diagram object dialog of the legacy tool (a double-click on a state
+away from its name, or on a transition), laid out as the legacy tool shows it.
 
 Left, the object categories (Clock, Resets, Enable, States, Transitions, Junctions, Links,
 Text, User Properties); right, the page of the category of the selected objects:
@@ -7,7 +7,7 @@ Text, User Properties); right, the page of the category of the selected objects:
                Style IF / CASE, Implicit loopback, Entry / State / Exit Actions tabs;
   Transitions  Number of selected transitions, IF Condition, Priority, Actions.
 Fields HDL Studio does not keep yet (state type, shape, style, loopback, the Visible boxes)
-are shown as HDS has them but disabled. OK applies and closes, Apply applies, Cancel closes.
+are shown as the legacy tool has them but disabled. OK applies and closes, Apply applies, Cancel closes.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _text_box() -> QPlainTextEdit:
 
 
 def _visible() -> QCheckBox:
-    """HDS's "Visible" box: shown checked, not editable yet (HDL Studio always shows the text)."""
+    """The legacy tool's "Visible" box: shown checked, not editable yet (HDL Studio always shows the text)."""
     c = QCheckBox('Visible')
     c.setChecked(True)
     c.setEnabled(False)
@@ -60,7 +60,7 @@ class SmObjectPropertiesDialog(QDialog):
 
         self.cats = QListWidget()
         self.cats.setFixedWidth(150)
-        # categories with objects in the machine are enabled, as HDS greys the others
+        # categories with objects in the machine are enabled, as the legacy tool greys the others
         present = {'States': bool(machine.states), 'Transitions': bool(machine.transitions),
                    'Junctions': bool(machine.junctions), 'Links': bool(machine.links),
                    'Clock': machine.point('clock') is not None, 'Resets': machine.point('reset') is not None,
@@ -100,7 +100,7 @@ class SmObjectPropertiesDialog(QDialog):
 
     # -- pages ----------------------------------------------------------------------
     def _states_page(self) -> QWidget:
-        """The States page: name (one state only), the disabled HDS-only fields and the three action tabs."""
+        """The States page: name (one state only), the disabled the legacy tool-only fields and the three action tabs."""
         w = QWidget()
         lay = QVBoxLayout(w)
         form = QFormLayout()

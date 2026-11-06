@@ -1,5 +1,5 @@
 {
-  "format": "dolphin-hds-fsm",
+  "format": "hdlstudio-fsm",
   "version": 1,
   "view": {
     "library": "uart_lib",

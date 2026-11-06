@@ -1,9 +1,9 @@
-"""Transitions of the state diagram editor as in HDS 2021.1 (watched on the real HDS with
-tests/hds_gui/hds.py): a drag on the line itself moves nothing; route points come from the
-right-click menu (Add Route / Remove Route / Remove All Routes / Reverse Direction) and the
-line is a smooth curve through them; an end handle dropped on another state reconnects the
-transition there; the line from a text box to its transition shows only while the box is
-selected. Runs on the UART diagram made with HDS (examples/uart_hds of this repository), read only."""
+"""Transitions of the state diagram editor as in the legacy tool: a drag on the line itself moves
+nothing; route points come from the right-click menu (Add Route / Remove Route / Remove All
+Routes / Reverse Direction) and the line is a smooth curve through them; an end handle dropped on
+another state reconnects the transition there; the line from a text box to its transition shows
+only while the box is selected. Runs, read only, on a legacy UART transmitter diagram (.sm) with
+states START and DATA, given by HDLSTUDIO_UART_SM; skipped when it is not set."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _env  # noqa: E402
@@ -13,11 +13,12 @@ from PySide6.QtGui import QPainterPath  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
-from hds.import_sm import import_sm  # noqa: E402
+from formats.import_sm import import_sm  # noqa: E402
 
-# default: the HDS-made UART example shipped in examples/ (repo root = two levels above tests/gui)
-SM = os.environ.get('DHDS_UART_SM', os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                                               'examples', 'uart_hds', 'uart_lib', 'hds', 'uart_tx', 'fsm.sm'))
+SM = os.environ.get('HDLSTUDIO_UART_SM', '')
+if not os.path.isfile(SM):
+    print('SKIP gui_fsm_transitions: set HDLSTUDIO_UART_SM to a legacy uart_tx fsm.sm', flush=True)
+    sys.exit(0)
 app = QApplication(sys.argv)
 fails = 0
 

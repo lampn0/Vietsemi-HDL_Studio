@@ -75,7 +75,7 @@ Chuột, phím, vẽ, đổi kích thước... đến widget qua các hàm ảo.
 | `keyPressEvent(e)` | nhấn phím | `CodeEditor.keyPressEvent`: Tab thành dấu cách |
 | `mousePressEvent` / `mouseMoveEvent` / `mouseReleaseEvent` / `mouseDoubleClickEvent` | chuột | `FsmScene`, `StateItem` ([diagram.py](../src/gui/diagram.py)) |
 | `wheelEvent(e)` | con lăn | `FsmGraphicsView.wheelEvent`: Ctrl+lăn để zoom |
-| `contextMenuEvent(e)` | chuột phải | `FsmScene.contextMenuEvent`: popup menu kiểu HDS |
+| `contextMenuEvent(e)` | chuột phải | `FsmScene.contextMenuEvent`: popup menu kiểu tool cũ |
 | `closeEvent(e)` | đóng cửa sổ | hỏi Save / Discard / Cancel (`e.ignore()` để không đóng) |
 | `dragEnterEvent` / `dropEvent` | kéo thả | `bd_editor.py`: thả component từ Component Browser |
 
@@ -162,7 +162,7 @@ Gọi một dòng, không cần tự tạo lớp:
 |---|---|---|
 | `QMessageBox.information / warning / critical(parent, tiêu đề, nội dung)` | | `context.py` |
 | `QMessageBox.question(parent, t, s, buttons)` | nút được bấm (so với `QMessageBox.Yes`...) | hỏi trước khi ghi đè file |
-| `QFileDialog.getOpenFileName(parent, t, dir, 'HDS project (*.hdp)')` | `(path, filter)`, path rỗng nếu Cancel | `design_manager.py` |
+| `QFileDialog.getOpenFileName(parent, t, dir, 'Project files (*.hdp)')` | `(path, filter)`, path rỗng nếu Cancel | `design_manager.py` |
 | `QFileDialog.getExistingDirectory(parent, t, dir)` | thư mục hoặc `''` | `dialogs.py` `_dir_row` |
 | `QInputDialog.getText(parent, t, nhãn, text=...)` | `(text, ok)` | `main_window.py`, `bd_editor.py` (đổi tên) |
 | `QColorDialog.getColor(initial, parent)` | `QColor` (`isValid()` sai nếu Cancel) | `bd_dialogs.py` Appearance |
@@ -205,7 +205,7 @@ Ba tầng, mỗi tầng một việc:
 | `QRubberBand` | khung chữ nhật khi kéo vùng | `setGeometry`, `show/hide` | View Area trong `FsmGraphicsView` |
 
 Ba hệ tọa độ: **item** (gốc tại `pos()` của item, `paint` vẽ trong hệ này), **scene** (chung cho
-cả sơ đồ; trong repo 1 đơn vị scene = 75 đơn vị HDS) và **view** (pixel trên màn hình). Đổi qua lại
+cả sơ đồ; trong repo 1 đơn vị scene = 75 đơn vị trong file của tool cũ) và **view** (pixel trên màn hình). Đổi qua lại
 bằng `mapToScene` / `mapFromScene` / `mapToItem`.
 
 Cờ của item: `ItemIsMovable` (kéo được), `ItemIsSelectable`, `ItemSendsGeometryChanges` (để
@@ -226,7 +226,7 @@ Signal của scene: `selectionChanged` (có sẵn) cùng các signal tự địn
 | `QPointF`, `QRectF`, `QLineF`, `QPolygonF` | hình học số thực | `QRectF(x, y, w, h)`, `contains`, `adjusted`, `united`, `center()`; `QLineF.angle()`, `pointAt(t)` |
 | `QPainterPath` | đường cong / hình phức tạp | `moveTo`, `lineTo`, `cubicTo`, `addEllipse`; `QPainterPathStroker` tạo vùng bấm quanh một đường mảnh |
 | `QTransform` | xoay / co giãn | `rotate`, `map` |
-| `QIcon` / `QPixmap` | icon cho action, cây | repo vẽ icon bằng QPainter vào `QPixmap` ([icons.py](../src/gui/icons.py), `dm_icons.py`) |
+| `QIcon` / `QPixmap` | icon cho action, cây | repo vẽ icon bằng QPainter vào `QPixmap` ([icons.py](../src/gui/icons.py), `dm_icons.py`, `editor_icons.py`; ảnh xám cho trạng thái disabled qua `QIcon.addPixmap(..., QIcon.Disabled)`) |
 
 ### 3.10 Tiện ích
 
@@ -254,15 +254,18 @@ if dlg.exec() == QDialog.Accepted:
     ports = dlg.parsed_ports()
 ```
 
-### 4.2 Lệnh theo tên HDS: action -> tên -> phím -> menu
+### 4.2 Lệnh theo tên của tool cũ: action -> tên -> phím -> menu
 Lệnh của editor đi qua 4 chỗ (đúng như architecture.md mục 6):
 1. Tạo `QAction` dưới một **key** trong `_build_actions` / `_build_menu_commands` của cửa sổ;
    hàm phụ `_act(menu, text, slot, key, icon_name)` trong `main_window.py`.
-2. [command_names.py](../src/gui/command_names.py) `COMMANDS[key] = (nhãn menu, tooltip, chữ trên status bar)`, giống HDS.
-3. [toolbars.py](../src/gui/toolbars.py): thứ tự toolbar (`FSM_TOOLBAR`, `BD_TOOLBAR`) và phím tắt
-   (`FSM_KEYS`, `BD_KEYS`); `build_toolbar` dựng toolbar từ danh sách đó.
-4. [menus.py](../src/gui/menus.py) `arrange_menus(win, spec)`: dựng lại menu bar theo thứ tự HDS.
-   `'@key'` = lệnh đã có, `'!text'` = mục làm mờ (HDS có, tool chưa có), `'-'` = vạch ngăn.
+2. [command_names.py](../src/gui/command_names.py) `COMMANDS[key] = (nhãn menu, tooltip, chữ trên status bar)`, giống tool cũ.
+3. [toolbars.py](../src/gui/toolbars.py): các toolbar theo thứ tự tool cũ (`FSM_TOOLBARS`, `BD_TOOLBARS`:
+   Standard, ... Tools, HDL Tools, Tasks) và phím tắt (`FSM_KEYS`, `BD_KEYS`); `build_toolbars` dựng
+   các toolbar từ danh sách đó, icon lấy từ [editor_icons.py](../src/gui/editor_icons.py).
+4. [menus.py](../src/gui/menus.py) `arrange_menus(win, spec)`: dựng lại menu bar theo thứ tự của tool cũ.
+   `'@key'` = lệnh đã có (`'@key=Nhãn'`: nhãn hiện mờ khi chưa có lệnh), `'!text'` = mục luôn mờ,
+   `'-'` = vạch ngăn, `(tiêu đề, hàm)` = menu con điền lại mỗi lần mở (Open Machine, Toolbars),
+   một hàm đứng riêng = phần cuối menu điền lại mỗi lần mở (danh sách cửa sổ trong Window).
 
 ### 4.3 Scene báo, cửa sổ xử lý
 Item và scene **không** mở dialog hay sửa cửa sổ. Chúng phát signal của scene

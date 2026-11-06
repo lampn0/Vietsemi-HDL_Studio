@@ -4,7 +4,7 @@ explorer trees. Same meaning and place as in the legacy tool, own artwork."""
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 _CACHE: dict[str, QIcon] = {}
 
@@ -134,6 +134,143 @@ def _draw_small(p: QPainter, name: str):
     elif name == 'library_protected':
         _draw_small(p, 'library')
         p.setBrush(YELLOW); p.setPen(QPen(QColor(130, 100, 0), 1)); p.drawRect(QRectF(9, 9, 6, 6))
+    elif name.startswith('tb_'):
+        _draw_toolbar(p, name[3:])
+
+
+def _lens(p: QPainter, cx: float, cy: float, r: float = 3.2):
+    """Magnifying glass centred at (cx, cy) with its handle to the lower right."""
+    p.setPen(QPen(QColor(40, 40, 40), 1.6)); p.drawLine(QPointF(cx + r * 0.7, cy + r * 0.7), QPointF(cx + r + 2.5, cy + r + 2.5))
+    p.setBrush(QColor(200, 230, 255)); p.setPen(QPen(NAVY, 1.1)); p.drawEllipse(QPointF(cx, cy), r, r)
+
+
+def _tick(p: QPainter, x: float, y: float, s: float = 1.0):
+    """Green tick with its corner at (x, y)."""
+    p.setPen(QPen(QColor(0, 160, 0), 1.8 * s, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.drawPolyline(QPolygonF([QPointF(x - 3 * s, y - 3 * s), QPointF(x, y), QPointF(x + 6 * s, y - 8 * s)]))
+
+
+def _draw_toolbar(p: QPainter, name: str):
+    """16x16 icons of the Design Manager toolbars (dm_toolbar.py)."""
+    if name == 'new':                     # page with a yellow spark
+        _page(p, QRectF(3, 2, 11, 13))
+        p.setBrush(YELLOW); p.setPen(QPen(QColor(200, 150, 0), 0.8)); p.drawEllipse(QPointF(4, 4), 3, 3)
+    elif name == 'open':                  # open folder
+        p.setBrush(QColor(255, 215, 90)); p.setPen(QPen(QColor(150, 110, 20), 1))
+        p.drawPolygon(QPolygonF([QPointF(1, 3), QPointF(6, 3), QPointF(7, 5), QPointF(13, 5), QPointF(13, 7),
+                                 QPointF(4, 7), QPointF(1, 14)]))
+        p.setBrush(QColor(240, 190, 50))
+        p.drawPolygon(QPolygonF([QPointF(4, 7), QPointF(15, 7), QPointF(12, 14), QPointF(1, 14)]))
+    elif name == 'print':                 # printer
+        p.setBrush(Qt.white); p.setPen(QPen(Qt.black, 0.9)); p.drawRect(QRectF(4, 1.5, 8, 5))
+        p.setBrush(QColor(190, 190, 190)); p.drawRect(QRectF(1.5, 6.5, 13, 6))
+        p.setBrush(Qt.white); p.drawRect(QRectF(4, 10.5, 8, 4.5))
+        p.setPen(QPen(DARK_GREEN, 1)); p.drawPoint(QPointF(12.5, 8.5))
+    elif name == 'document':              # page with linked coloured views
+        _page(p, QRectF(3, 1, 11, 14))
+        for (x, y), c in zip(((6, 6), (10, 9), (6, 12)), (RED, GREEN, BLUE)):
+            p.setBrush(c); p.setPen(QPen(Qt.black, 0.6)); p.drawEllipse(QPointF(x, y), 1.7, 1.7)
+    elif name == 'cut':                   # scissors
+        p.setPen(QPen(NAVY, 1.3)); p.drawLine(QPointF(5, 1.5), QPointF(10, 10)); p.drawLine(QPointF(11, 1.5), QPointF(6, 10))
+        p.setBrush(Qt.NoBrush); p.drawEllipse(QPointF(5, 12.5), 2.3, 2.3); p.drawEllipse(QPointF(11, 12.5), 2.3, 2.3)
+    elif name == 'copy':                  # two pages
+        p.setBrush(Qt.white); p.setPen(QPen(NAVY, 1)); p.drawRect(QRectF(1.5, 1.5, 8, 9)); p.drawRect(QRectF(6.5, 5.5, 8, 9))
+        p.setPen(QPen(NAVY, 0.8))
+        for y in (8.5, 10.5, 12.5):
+            p.drawLine(QPointF(8.5, y), QPointF(12.5, y))
+    elif name == 'paste':                 # clipboard with a page
+        p.setBrush(QColor(170, 120, 60)); p.setPen(QPen(QColor(90, 60, 20), 1)); p.drawRect(QRectF(2, 3, 10, 12))
+        p.setBrush(QColor(200, 200, 200)); p.drawRect(QRectF(5, 1.5, 4, 3))
+        p.setBrush(Qt.white); p.setPen(QPen(Qt.black, 0.8)); p.drawRect(QRectF(7, 7, 7.5, 8))
+    elif name == 'delete':                # dark red cross
+        p.setPen(QPen(QColor(150, 0, 0), 2.2, Qt.SolidLine, Qt.RoundCap)); p.drawLine(3, 3, 13, 13); p.drawLine(13, 3, 3, 13)
+    elif name == 'properties':            # form with a pointer
+        p.setBrush(Qt.white); p.setPen(QPen(Qt.black, 0.9)); p.drawRect(QRectF(1.5, 3.5, 11, 11))
+        p.setPen(QPen(NAVY, 1))
+        for y in (6.5, 9, 11.5):
+            p.drawLine(QPointF(3.5, y), QPointF(5, y)); p.drawLine(QPointF(6.5, y), QPointF(10.5, y))
+        p.setBrush(Qt.black); p.setPen(Qt.NoPen)
+        p.drawPolygon(QPolygonF([QPointF(11, 0.5), QPointF(15.5, 3), QPointF(13, 3.5), QPointF(12.5, 6)]))
+    elif name == 'hierarchy':             # tree of blocks
+        _draw_small(p, 'hierarchy_root')
+    elif name == 'cross_highlight':       # pen over a yellow line
+        p.setPen(QPen(YELLOW, 2.4)); p.drawLine(QPointF(1, 14), QPointF(15, 14))
+        p.setPen(QPen(QColor(60, 60, 60), 1.6, Qt.SolidLine, Qt.RoundCap)); p.drawLine(QPointF(4, 11), QPointF(13, 2))
+        p.setPen(QPen(NAVY, 1)); p.drawLine(QPointF(3, 12.5), QPointF(4, 11))
+    elif name == 'explore':               # library book under a lens
+        p.setBrush(QColor(255, 220, 60)); p.setPen(QPen(QColor(120, 90, 0), 0.9)); p.drawRect(QRectF(1.5, 2, 9, 11))
+        p.setPen(QPen(NAVY, 0.8))
+        for y in (5, 7, 9):
+            p.drawLine(QPointF(3.5, y), QPointF(8.5, y))
+        _lens(p, 9.5, 9, 3)
+    elif name == 'explorer_view':         # window with list rows
+        p.setBrush(Qt.white); p.setPen(QPen(NAVY, 1)); p.drawRect(QRectF(1.5, 1.5, 13, 13))
+        p.setBrush(NAVY); p.drawRect(QRectF(1.5, 1.5, 13, 2.5))
+        p.setBrush(BLUE); p.setPen(Qt.NoPen)
+        for y in (6, 9, 12):
+            p.drawRect(QRectF(3.5, y - 0.8, 2, 1.8))
+        p.setPen(QPen(QColor(60, 60, 60), 1))
+        for y in (6, 9, 12):
+            p.drawLine(QPointF(7, y), QPointF(12.5, y))
+    elif name == 'viewpoint':             # stacked cubes
+        for (x, y), c in zip(((5, 1.5), (1.5, 7.5), (8.5, 7.5)), (YELLOW, CYAN, BLUE)):
+            p.setBrush(c); p.setPen(QPen(NAVY, 0.9)); p.drawRect(QRectF(x, y, 6, 6))
+    elif name == 'find':                  # binoculars
+        p.setBrush(QColor(30, 30, 30)); p.setPen(Qt.NoPen)
+        p.drawRoundedRect(QRectF(1.5, 4, 5.5, 10), 1.5, 1.5); p.drawRoundedRect(QRectF(9, 4, 5.5, 10), 1.5, 1.5)
+        p.drawRect(QRectF(6, 6, 4, 3))
+        p.setBrush(QColor(140, 180, 230)); p.drawEllipse(QPointF(4.2, 12), 1.6, 1.6); p.drawEllipse(QPointF(11.8, 12), 1.6, 1.6)
+    elif name == 'components':            # green component block
+        _chip(p, pins=True)
+    elif name == 'designpad':             # note with a pencil
+        p.setBrush(Qt.white); p.setPen(QPen(Qt.black, 0.9, Qt.DotLine)); p.drawRect(QRectF(1.5, 3.5, 10, 11))
+        p.setPen(QPen(RED, 2.2, Qt.SolidLine, Qt.FlatCap)); p.drawLine(QPointF(7, 10), QPointF(14, 2.5))
+        p.setPen(QPen(Qt.black, 1)); p.drawLine(QPointF(6, 11.5), QPointF(7, 10))
+    elif name == 'refresh':               # the shared Refresh icon (icons.draw_refresh)
+        from .icons import draw_refresh
+        draw_refresh(p, 16)
+    elif name == 'convert':               # text page turning into blocks
+        _page(p, QRectF(1, 1, 8, 10)); _lines(p, QRectF(1, 1, 8, 10), QColor(140, 140, 0))
+        p.setPen(QPen(Qt.black, 1)); p.drawLine(QPointF(4, 11), QPointF(4, 14)); p.drawLine(QPointF(4, 14), QPointF(8, 14))
+        p.setBrush(CYAN); p.setPen(QPen(NAVY, 0.8)); p.drawRect(QRectF(8, 11, 4, 4)); p.drawRect(QRectF(12, 8, 3.5, 4))
+    elif name == 'visualize':             # person with a diagram page
+        p.setBrush(QColor(80, 80, 80)); p.setPen(Qt.NoPen); p.drawEllipse(QPointF(4, 5), 2.5, 2.5)
+        p.drawRoundedRect(QRectF(1, 8, 6, 6), 2, 2)
+        _page(p, QRectF(7, 1, 8, 10)); _lines(p, QRectF(7, 1, 8, 10), NAVY)
+        p.setBrush(GREEN); p.setPen(QPen(DARK_GREEN, 0.8)); p.drawRect(QRectF(9, 11, 3.5, 4))
+    elif name == 'view_hdl':              # lens over an HDL page
+        _page(p, QRectF(6, 1, 9, 11)); _lines(p, QRectF(6, 1, 9, 11), NAVY)
+        _lens(p, 6, 8.5, 4)
+        p.setPen(QPen(NAVY, 0.9))
+        for y in (7.5, 9.5):
+            p.drawLine(QPointF(4, y), QPointF(8, y))
+    elif name == 'tasks':                 # window with a hammer
+        p.setBrush(Qt.white); p.setPen(QPen(NAVY, 1)); p.drawRect(QRectF(1.5, 1.5, 13, 11))
+        p.setBrush(NAVY); p.drawRect(QRectF(1.5, 1.5, 13, 2.5))
+        p.setPen(QPen(QColor(140, 90, 40), 1.8)); p.drawLine(QPointF(7, 14.5), QPointF(12, 7.5))
+        p.setBrush(QColor(90, 90, 90)); p.setPen(QPen(Qt.black, 0.8))
+        p.drawPolygon(QPolygonF([QPointF(9.5, 6), QPointF(13, 4.5), QPointF(15, 7.5), QPointF(11.5, 9)]))
+    elif name == 'check':                 # checked sheet
+        _page(p, QRectF(2, 3, 10, 12)); _lines(p, QRectF(2, 3, 10, 12), QColor(150, 150, 150))
+        _tick(p, 8, 11, 0.9)
+    elif name == 'registers':             # register file: two bit cells
+        p.setBrush(QColor(210, 210, 210)); p.setPen(QPen(Qt.black, 0.9)); p.drawRect(QRectF(1.5, 2.5, 13, 11))
+        p.setBrush(GREEN); p.setPen(QPen(DARK_GREEN, 0.8)); p.drawRect(QRectF(6.5, 2.5, 3, 11))
+    elif name == 'generate':              # pages with a pencil
+        for k in range(3):
+            p.setBrush(Qt.white); p.setPen(QPen(QColor(70, 70, 70), 0.8))
+            p.drawRect(QRectF(1.5 + k * 1.5, 7 - k * 1.5, 9, 6))
+        p.setPen(QPen(QColor(200, 150, 0), 2.2, Qt.SolidLine, Qt.FlatCap)); p.drawLine(QPointF(9, 9), QPointF(15, 1.5))
+        p.setPen(QPen(Qt.black, 1)); p.drawLine(QPointF(8, 10.5), QPointF(9, 9))
+    elif name == 'simulate':              # waveform
+        p.setPen(QPen(RED, 1.6, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin)); p.setBrush(Qt.NoBrush)
+        p.drawPolyline(QPolygonF([QPointF(1, 12), QPointF(4, 12), QPointF(4, 4), QPointF(8, 4), QPointF(8, 12),
+                                  QPointF(11, 12), QPointF(11, 4), QPointF(15, 4)]))
+    elif name == 'synthesize':            # gate driving a bubble
+        p.setPen(QPen(Qt.black, 1)); p.drawLine(1, 5, 4, 5); p.drawLine(1, 11, 4, 11); p.drawLine(13, 8, 15, 8)
+        p.setBrush(QColor(80, 140, 255)); p.setPen(QPen(NAVY, 1))
+        p.drawPolygon(QPolygonF([QPointF(4, 2.5), QPointF(11, 8), QPointF(4, 13.5)]))
+        p.setBrush(Qt.white); p.drawEllipse(QPointF(12, 8), 1.4, 1.4)
 
 
 def _draw_large(p: QPainter, name: str):
@@ -188,13 +325,6 @@ def _draw_large(p: QPainter, name: str):
         p.setPen(Qt.black); p.setFont(QFont('Arial', 8, QFont.Bold))
         p.drawText(QRectF(11, 7, 8, 12), Qt.AlignLeft | Qt.AlignVCenter, 'D')
         p.drawText(QRectF(21, 7, 8, 12), Qt.AlignRight | Qt.AlignVCenter, 'Q')
-    elif name == 'launch_svassistant':    # four small panes
-        for (x, y, c, t) in ((4, 4, QColor(230, 240, 255), 'e'), (21, 4, QColor(230, 240, 255), ''),
-                             (4, 21, QColor(230, 240, 255), 'a'), (21, 21, YELLOW, '')):
-            p.setBrush(c); p.setPen(QPen(NAVY, 1.4)); p.drawRect(QRectF(x, y, 15, 15))
-            if t:
-                p.setPen(Qt.black); p.setFont(QFont('Arial', 9, QFont.Bold)); p.drawText(QRectF(x, y, 15, 15), Qt.AlignCenter, t)
-        p.setPen(QPen(NAVY, 1)); p.drawRect(QRectF(24, 7, 9, 4)); p.drawRect(QRectF(24, 12, 9, 4))
 
 
 def dm_icon(name: str) -> QIcon:
@@ -212,8 +342,23 @@ def dm_icon(name: str) -> QIcon:
     (_draw_large if large else _draw_small)(p, name)
     p.end()
     ic = QIcon(pm)
+    if name.startswith('tb_'):
+        ic.addPixmap(_disabled(pm), QIcon.Disabled)
     _CACHE[name] = ic
     return ic
+
+
+def _disabled(pm: QPixmap) -> QPixmap:
+    """Greyed look of a toolbar icon, as the legacy tool draws a button it cannot use: the icon in
+    light grey (the style's own disabled look keeps dark colours dark)."""
+    img = pm.toImage().convertToFormat(QImage.Format_ARGB32)
+    for y in range(img.height()):
+        for x in range(img.width()):
+            c = img.pixelColor(x, y)
+            if c.alpha():
+                g = 150 + int(0.4 * (0.3 * c.red() + 0.59 * c.green() + 0.11 * c.blue()))
+                img.setPixelColor(x, y, QColor(min(g, 235), min(g, 235), min(g, 235), c.alpha()))
+    return QPixmap.fromImage(img)
 
 
 ROOT_TEXT = QColor(0, 0, 220)          # name of the design root (and of its library) is blue

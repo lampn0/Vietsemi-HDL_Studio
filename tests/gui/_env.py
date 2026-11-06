@@ -1,16 +1,16 @@
 """Shared set-up of the GUI tests.
 
 Every GUI test runs the real application (Design Manager -> editors, visible windows) on a
-throw-away copy of a few design units of a real HDS project, with its own configuration
+throw-away copy of a few design units of a legacy project, with its own configuration
 directory, so it never writes into the real project (no lock files, no saved views) nor into
 the user's preferences.
 
     HDP, CFG, OUT = _env.setup()      # call before importing PySide6 / the application
 
 Environment variables:
-    DHDS_TEST_SRC   the real project folder to copy from (read only), default D:/workspace/src
-    DHDS_TEST_OUT   where screenshots go, default tests/gui/out (ignored by git)
-    DHDS_TEST_TMP   the temporary folder to work in; run_all.py sets and deletes it, a test run
+    HDLSTUDIO_TEST_SRC   the real project folder to copy from (read only), default D:/workspace/src
+    HDLSTUDIO_TEST_OUT   where screenshots go, default tests/gui/out (ignored by git)
+    HDLSTUDIO_TEST_TMP   the temporary folder to work in; run_all.py sets and deletes it, a test run
                     on its own makes one and prints it
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE_DIR = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'src')   # the application's code
-SRC = os.environ.get('DHDS_TEST_SRC', r'D:\workspace\src')
+SRC = os.environ.get('HDLSTUDIO_TEST_SRC', r'D:\workspace\src')
 
 # What the tests use from the real project: the top library's dynamo_core block diagram (a
 # large legacy .bd with components, embedded blocks, ports, buses and frames), and the whole
@@ -42,7 +42,7 @@ def make_project(dest: str) -> str:
     for rel in _FILES:
         src = os.path.join(SRC, rel)
         if not os.path.exists(src):
-            raise SystemExit(f'GUI tests need {src} (set DHDS_TEST_SRC to the project folder)')
+            raise SystemExit(f'GUI tests need {src} (set HDLSTUDIO_TEST_SRC to the project folder)')
         target = os.path.join(dest, rel)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         shutil.copy2(src, target)
@@ -57,9 +57,9 @@ def make_project(dest: str) -> str:
 def setup() -> tuple[str, str, str]:
     """Make the project copy and the config dir, point the app at them; return (hdp, config
     dir, screenshot dir)."""
-    root = os.environ.get('DHDS_TEST_TMP')
+    root = os.environ.get('HDLSTUDIO_TEST_TMP')
     if not root:
-        root = tempfile.mkdtemp(prefix='dhds_gui_')
+        root = tempfile.mkdtemp(prefix='hdlstudio_gui_')
         print('test folder:', root, flush=True)
     project = os.path.join(root, 'project')
     hdp = os.path.join(project, 'dti_hbm.hdp')
@@ -67,9 +67,9 @@ def setup() -> tuple[str, str, str]:
         make_project(project)
     cfg = os.path.join(root, 'config')
     os.makedirs(cfg, exist_ok=True)
-    out = os.environ.get('DHDS_TEST_OUT', os.path.join(HERE, 'out'))
+    out = os.environ.get('HDLSTUDIO_TEST_OUT', os.path.join(HERE, 'out'))
     os.makedirs(out, exist_ok=True)
-    os.environ['XDG_CONFIG_HOME'] = cfg          # preferences, session, autosave, caches
+    os.environ['HDLSTUDIO_HOME'] = cfg           # preferences, session, autosave, caches
     if CODE_DIR not in sys.path:
         sys.path.insert(0, CODE_DIR)
     _guard_dialogs()
@@ -110,9 +110,9 @@ def run_steps(script: str, steps: list[str]) -> int:
     per step, each in a new process, all on the same project copy and config folder. Returns
     1 when a step failed."""
     import subprocess
-    if not os.environ.get('DHDS_TEST_TMP'):
-        os.environ['DHDS_TEST_TMP'] = tempfile.mkdtemp(prefix='dhds_gui_')
-        print('test folder:', os.environ['DHDS_TEST_TMP'], flush=True)
+    if not os.environ.get('HDLSTUDIO_TEST_TMP'):
+        os.environ['HDLSTUDIO_TEST_TMP'] = tempfile.mkdtemp(prefix='hdlstudio_gui_')
+        print('test folder:', os.environ['HDLSTUDIO_TEST_TMP'], flush=True)
     rc = 0
     for step in steps:
         print(f'-- step {step}', flush=True)

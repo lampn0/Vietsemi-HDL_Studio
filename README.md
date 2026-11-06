@@ -2,14 +2,17 @@
 
 **Vietsemi HDL Studio** is the RTL design and verification tool of [Vietsemi](https://vietsemi.org),
 the front-end companion of **V-Layout**. It is a design manager and graphical HDL editor for
-**Verilog and SystemVerilog**, compatible with Siemens EDA **HDL Designer Series (HDS)** projects. It opens HDS projects (`.hdp`), browses their
-libraries and design units, edits state diagrams and block diagrams, edits HDL text, and
-generates the same Verilog / SystemVerilog that HDS generates from the same diagrams.
+**Verilog and SystemVerilog** that works on existing projects in the legacy project format
+(`.hdp` project files, `.sm` state diagrams, `.bd` block diagrams, `.sb` symbols). It opens
+these projects, browses their libraries and design units, edits state diagrams and block
+diagrams, edits HDL text, and generates the same Verilog / SystemVerilog that the legacy tool
+generates from the same diagrams.
 
 Written in Python with PySide6 (Qt 6); runs on Windows and CentOS Stream 9.
-Version 1.0.0 (`src/version.py`, which also holds the product name used everywhere in the tool).
-User settings live in `~/.config/vietsemi-hdl-studio`; a configuration left by the
-prototype ("Dolphin HDS", `~/.config/dolphin-hds`) is moved there on the first start.
+Version 2026.12 (revision 001; `src/version.py`, which also holds the product name used everywhere in the tool).
+Settings live in `~/hdl_studio`: `user/` (per user) and `team/` (shared by a team), each with one
+folder per release (`v2026.12/`). Settings of earlier builds in `~/.config/vietsemi-hdl-studio` are
+copied there on first start.
 
 ![Design Manager](resources/images/screenshots/design_manager.png)
 
@@ -17,12 +20,12 @@ prototype ("Dolphin HDS", `~/.config/dolphin-hds`) is moved there on the first s
 
 | | |
 |---|---|
-| **Projects** | Open / create `.hdp` projects in the HDS format, with shared team projects, regular and protected libraries, environment variables in paths. |
+| **Projects** | Open / create `.hdp` projects, with shared team projects, regular and protected libraries, environment variables in paths. |
 | **Design Manager** | Libraries in tabs: Design Units (with views and default view), Files (parse errors in red), Design Hierarchy (generate frames, missing units). Session restore and crash recovery. |
-| **State diagram editor** | States, transitions, junctions, links, clock / reset / recovery / interrupt points, hierarchical states, declaration blocks, HDS dialogs and popup menus. Reads and **writes back the HDS `.sm`**, so HDS and HDL Studio edit the same file. |
-| **Block diagram editor** | Components (Component Browser), nets and buses, port I/Os, embedded HDL blocks, FOR / IF / ELSE generate frames, routing, HDS dialogs and popup menus. Reads the HDS `.bd`. |
+| **State diagram editor** | States, transitions, junctions, links, clock / reset / recovery / enable / interrupt points, hierarchical and wait states, concurrent machines, comment texts, panels, declaration blocks, dialogs and popup menus; menus and toolbars as the legacy editor (cut / copy / paste, find / replace, align, Expression Builder, Change To). Reads and **writes back the `.sm`**, so the legacy tool and HDL Studio edit the same file. |
+| **Block diagram editor** | Components (Component Browser), nets and buses, port I/Os, embedded HDL blocks, FOR / IF / ELSE generate frames, comment texts, panels, routing, Connect By Name, connectivity table (IBD), dialogs and popup menus; menus and toolbars as the legacy editor. Reads the `.bd`. |
 | **HDL text editor** | Line numbers, find / replace, syntax check with slang. |
-| **Generation** | Verilog-2005 / SystemVerilog, identical to HDS's output; through blocks, components or the design root; hand-edited files are never overwritten without asking. |
+| **Generation** | Verilog-2005 / SystemVerilog, identical to the legacy tool's output; through blocks, components or the design root; hand-edited files are never overwritten without asking. |
 
 What is not done yet is listed in [docs/roadmap.md](docs/roadmap.md).
 
@@ -31,38 +34,36 @@ What is not done yet is listed in [docs/roadmap.md](docs/roadmap.md).
 ```
 pip install -r requirements.txt
 python bin/hdlstudio.py                               # Design Manager (reopens the last session)
-python bin/hdlstudio.py examples/uart_hds/uart.hdp    # open the example project
+python bin/hdlstudio.py examples/uart_studio/uart.hdp # open the example project
 ```
 
 On CentOS Stream 9 install the Qt xcb libraries first (see
 [docs/development.md](docs/development.md)), then use `python3` or `bin/hdlstudio.sh`.
 On Windows `bin\hdlstudio.bat` starts the tool without a console window.
-Set the environment variables your projects use (`$HDS_TEAM_HOME`, ...) as for HDS.
+Set the environment variables your projects use in their paths before starting the tool.
 
 The [user guide](docs/user-guide.md) explains the daily work: projects, libraries, the
 editors, generation, sessions and locks.
 
 ## Repository layout
 
-The layout follows the HDS installation (`C:\MentorGraphics\HDS_2021.1`: `bin`, `docs`,
-`examples`, `resources`, `hdl_libs`):
-
 ```
 hdl-studio/
 ├── bin/            launchers: hdlstudio.py (Design Manager), fsm_editor.py, .bat / .sh wrappers
 ├── src/            the application code (on sys.path: modules imported by their own names)
 │   ├── model.py, bd_model.py    data model of state diagrams and block diagrams
-│   ├── hds/                     HDS file formats: .sm / .bd / .sb readers and writers
+│   ├── formats/                 legacy file formats: .sm / .bd / .sb readers and writers
 │   ├── hdl/                     Verilog / SystemVerilog parser (pyslang)
 │   ├── codegen/                 HDL generators (state machine, block diagram)
 │   ├── project/                 .hdp projects, libraries, generation, locks, templates
+│   ├── homes.py                 configuration folders (~/hdl_studio)
 │   ├── prefs.py, session.py     preferences, session, autosave
 │   ├── version.py               version number
 │   └── gui/                     Qt user interface: Design Manager, editors, dialogs
-├── libs/           HDL libraries shipped with the tool (HDS library layout)
+├── libs/           HDL libraries shipped with the tool
 ├── resources/      images/ (screenshots), drawings/ (doc diagrams), scripts/ (packaging)
-├── examples/       example HDS projects (UART made with HDS, and rebuilt with HDL Studio)
-├── tests/          unit tests, GUI tests, comparisons with HDS (tests/README.md)
+├── examples/       example project (a UART built with HDL Studio)
+├── tests/          unit tests and GUI tests (tests/README.md)
 ├── docs/           requirements, architecture, file formats, guides (docs/README.md)
 ├── requirements.txt
 └── LICENSE
@@ -87,9 +88,6 @@ python -m unittest discover -s tests       # unit tests, including golden HDL co
 python tests/gui/run_all.py                 # GUI tests: real windows, mouse and keyboard
 ```
 
-Comparisons with the real HDS (batch generation, round trips through `.sm` files) are in
-`tests/hds_compare/` and `tests/hds_sync/`; see [tests/README.md](tests/README.md).
-
 ## Building a release
 
 ```
@@ -103,8 +101,3 @@ Both use PyInstaller (`pip install pyinstaller`) and write `dist/HDLStudio/` plu
 
 GNU General Public License v3.0 - see [LICENSE](LICENSE). (c) Vietsemi.
 
-## Trademarks
-
-Vietsemi HDL Studio is developed by Vietsemi. It is **not affiliated with, endorsed by or
-sponsored by Siemens EDA**. HDL Designer Series (HDS) and HDL Designer are trademarks of
-Siemens; they are named here only to describe file-format compatibility.

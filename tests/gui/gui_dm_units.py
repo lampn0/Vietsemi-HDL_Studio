@@ -6,10 +6,11 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _env  # noqa: E402
 HDP, CFG, OUT = _env.setup()
-from PySide6.QtCore import QRect, Qt, QTimer
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QPixmap, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox
+from gui import explorer_menus as M
 from gui.design_manager import DesignManager
 from gui.bd_editor import BdEditorWindow
 from gui.text_editor import TextEditorWindow
@@ -43,7 +44,7 @@ ok('fsm view type is State Machine', any(rows['gc_control_fsm'].child(k).text(1)
 
 # screenshot of the tree and the popup menu
 item = rows['gc_control_fsm']
-m = QMenu(); du = item.data(0, Qt.UserRole)[1]; ex._unit_menu(m, du, None)
+m = QMenu(); du = item.data(0, Qt.UserRole)[1]; M._fill(m, M.unit_menu(ex, du))
 print('  menu:', ' | '.join(a.text() or '-' for a in m.actions()))
 shot = tree.grab()
 m.popup(tree.viewport().mapToGlobal(tree.visualItemRect(item).center())); QTest.qWait(200)
@@ -56,11 +57,12 @@ pm.save(os.path.join(OUT, 'dm_units.png'))
 text_view = next(v for v in du.views if v.kind == 'text')
 ex.set_default_view(du, text_view)
 ok('default view saved', du.library.default_views.get(du.name) == f'{text_view.name}|text'
-   and os.path.exists(os.path.join(du.library.hds_dir, '.dhds_default_views.json')))
+   and os.path.exists(os.path.join(du.library.meta_dir, '.hdlstudio_default_views.json')))
 item = next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount()) if tree.topLevelItem(i).text(0) == 'gc_control_fsm')
 tree.scrollToItem(item); QTest.qWait(50)               # the row may be below the visible part
 r = tree.visualItemRect(item)
-QTest.mouseClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, r.center()); QTest.mouseDClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, r.center()); QTest.qWait(300)
+on_text = QPoint(r.left() + 30, r.center().y())     # on the name: a click beside it is a click in blank space
+QTest.mouseClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, on_text); QTest.mouseDClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, on_text); QTest.qWait(300)
 ok('double-click opens the default (text) view', any(isinstance(w, TextEditorWindow) for w in dm.editors.values()))
 ok('double-click does not toggle expansion', not item.isExpanded() or True)
 # back to the state machine as default
@@ -70,7 +72,7 @@ du2 = dm.project.library('protocol_controller').units['pc_global_controller']
 item = next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount()) if tree.topLevelItem(i).text(0) == 'pc_global_controller')
 was = item.isExpanded()
 tree.scrollToItem(item); QTest.qWait(50)
-c = tree.visualItemRect(item).center(); QTest.mouseClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, c); QTest.mouseDClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, c); QTest.qWait(400)
+r = tree.visualItemRect(item); c = QPoint(r.left() + 30, r.center().y()); QTest.mouseClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, c); QTest.mouseDClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, c); QTest.qWait(400)
 ok('double-click component opens its block diagram', any(isinstance(w, BdEditorWindow) for w in dm.editors.values()))
 ok('double-click leaves expansion unchanged', item.isExpanded() == was)
 for w in list(dm.editors.values()):

@@ -14,6 +14,7 @@ from gui.design_manager import DesignManager
 from gui.bd_editor import BdEditorWindow
 from gui.main_window import MainWindow as FsmEditorWindow
 from gui.text_editor import TextEditorWindow
+import homes
 from session import Session
 
 app = QApplication(sys.argv)
@@ -62,7 +63,7 @@ if step == '1':
     s = Session.load()
     print('  session:', s.project, s.explorers, s.current, [(e.kind, e.unit or os.path.basename(e.path), e.tab) for e in s.editors])
     ok('step1: session saved with 3 editors', s is not None and len(s.editors) == 3)
-    ok('step1: autosave written', os.listdir(os.path.join(cfg, 'vietsemi-hdl-studio', 'autosave')))
+    ok('step1: autosave written', os.listdir(os.path.join(cfg, 'user', homes.version_dir_name(), 'autosave')))
     sys.stdout.flush()
     _env.finish(fails)                                 # simulate a crash: no close, no cleanup
 
@@ -87,7 +88,7 @@ if step == '2':
     dm.close(); QTest.qWait(200)
     s = Session.load()
     ok('step2: normal close keeps the window list', s is not None and len(s.editors) == 3)
-    ok('step2: autosave removed after a normal close', not os.listdir(os.path.join(cfg, 'vietsemi-hdl-studio', 'autosave')))
+    ok('step2: autosave removed after a normal close', not os.listdir(os.path.join(cfg, 'user', homes.version_dir_name(), 'autosave')))
 
 if step == '3':
     dm.restore_session()

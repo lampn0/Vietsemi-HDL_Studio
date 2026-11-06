@@ -23,15 +23,15 @@ Dữ liệu design được lưu dưới dạng **file source Verilog/SystemVeri
 
 ### 1.2 Trong phạm vi
 - Ngôn ngữ: Verilog (IEEE 1364-2005) và SystemVerilog (IEEE 1800-2017).
-- Hệ điều hành: CentOS Stream 9 (ưu tiên), sau đó CentOS 7 và CentOS 10. Tool cũng chạy trên Windows (máy có HDS 2021.1, dùng để đối chiếu với HDS).
+- Hệ điều hành: CentOS Stream 9 (ưu tiên), sau đó CentOS 7 và CentOS 10. Tool cũng chạy trên Windows (máy dùng để đối chiếu với tool cũ).
 
 ### 1.3 Ngoài phạm vi (ít nhất ở giai đoạn đầu)
 | Hạng mục | Lý do |
 |---|---|
 | VHDL | Người dùng chỉ cần Verilog/SV |
-| Tích hợp simulator và synthesis (Questa, VCS, Vivado, Quartus, …) | Không thuộc 3 chức năng chính. Có thể làm sau bằng cơ chế "task" chạy script ngoài (xem TSK-1) |
+| Tích hợp simulator và synthesis | Không thuộc 3 chức năng chính. Có thể làm sau bằng cơ chế "task" chạy script ngoài (xem TSK-1) |
 | Register generator, trợ lý UVM, requirements tracing | Không thuộc 3 chức năng chính |
-| Lint hoặc kiểm tra quy tắc coding (kiểu DesignChecker) | P3, cân nhắc sau |
+| Lint hoặc kiểm tra quy tắc coding | P3, cân nhắc sau |
 | In ấn và xuất tài liệu HTML | P3 |
 | OLE | Không cần |
 
@@ -105,7 +105,7 @@ Biến đường dẫn: `$HDS_PROJECT_DIR` là thư mục chứa file `.hdp`. `$
 | IMP-4 | Phân tích design để đề xuất ánh xạ library | P2 |
 | IMP-5 | **Reference file**: tham chiếu tới file nằm ngoài HDL dir mà không copy | P2 |
 | IMP-6 | Báo cáo các file không parse được, kèm vị trí lỗi | P1 |
-| IMP-7 | **Import view đồ họa của tool cũ** từ `hds/<unit>/`: `.sm` (state machine), `.bd` (block diagram), `.sb` (symbol). Định dạng ghi trong [hds-file-format.md](hds-file-format.md) | P1 |
+| IMP-7 | **Import view đồ họa của tool cũ** từ `hds/<unit>/`: `.sm` (state machine), `.bd` (block diagram), `.sb` (symbol). | P1 |
 | IMP-8 | Khi import, bỏ qua các biến lưu sẵn (`VExpander`) như đường dẫn tuyệt đối, user, host | P1 |
 | IMP-9 | Import giữ nguyên vị trí và kích thước đối tượng để sơ đồ trông giống bản gốc | P2 |
 | IMP-10 | Kiểm tra sau import: code do tool mới sinh ra từ view đã import phải **tương đương về chức năng** với file `.v` mà tool cũ đã sinh | P1 |
@@ -147,7 +147,7 @@ Bố cục tham khảo từ ảnh chụp tool đang dùng:
 | EXP-15 | Cột của khung Files: **Files, Type, Extends, Size, Time Stamp**. Có các nhóm: *Design Files* và *Documentation & Visualization* | P1 |
 | EXP-16 | Cột của khung Design Hierarchy: **Design Hierarchy** (tên instance), **Design Unit Name**, **Extends**, **Name**. Hiển thị cả **khối generate** (ví dụ `FOR : ps_chan_num`) như một cấp trong cây | P1 |
 | EXP-17 | Tên library hoặc unit có lỗi parse thì hiện **màu đỏ** kèm số file lỗi, ví dụ `protocol_controller [1 file not parsed]` | P1 |
-| EXP-18 | Thanh lối tắt bên trái ở chế độ Explore: **New/Add, Check** (P3), Document & Visualize (P3). Simulate, Synthesize, Registers, SVAssistant nằm ngoài phạm vi | P1 |
+| EXP-18 | Thanh lối tắt bên trái ở chế độ Explore: **New/Add, Check** (P3), Document & Visualize (P3). Simulate, Synthesize, Registers nằm ngoài phạm vi | P1 |
 
 ### 3.4 Tạo design content và template (NEW / TPL)
 | ID | Yêu cầu | Ưu tiên |
@@ -411,7 +411,7 @@ Khi sinh **SystemVerilog**: kiểu 1 khối thành `always_ff`. Kiểu 2 và 3 k
 
 ## 6. Kết quả đối chiếu ảnh chụp với user guide
 
-Nguồn: *HDL Designer Series User Manual v2024.2*, gồm các phần Glossary, "Opening Design Unit Views", "Main Settings Dialog Box", "Verilog Options Dialog Box", Appendix J. Riêng chi tiết các graphical editor nằm trong *Graphical Editors User Manual*, một tài liệu khác chưa có.
+Nguồn: user manual của tool cũ, gồm các phần Glossary, "Opening Design Unit Views", "Main Settings Dialog Box", "Verilog Options Dialog Box", Appendix J. Riêng chi tiết các graphical editor nằm trong *Graphical Editors User Manual*, một tài liệu khác chưa có.
 
 | Nội dung | Kết quả | Ghi chú |
 |---|---|---|

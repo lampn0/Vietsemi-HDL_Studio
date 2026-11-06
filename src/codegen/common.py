@@ -5,10 +5,10 @@ import re
 
 IND = '  '
 
-# Options > Verilog > Style, as HDS applies them when it generates (set_style): the indent
+# Options > Verilog > Style, as the legacy tool applies them when it generates (set_style): the indent
 # width ("Tab Width (spaces)"), "Instance Parameters Mapping" (Named / Positional) and "Allow
-# implicit event expression (@*)". The defaults are those of the server's HDS 2024.2 settings
-# HDL Studio was matched against; HDS 2021.1 out of the box uses 3 / Positional.
+# implicit event expression (@*)". The defaults are those of the server's legacy settings
+# HDL Studio was matched against; the legacy tool out of the box uses 3 / Positional.
 STYLE = {'tab_width': 2, 'param_mapping': 'Named', 'implicit_event': False}
 
 

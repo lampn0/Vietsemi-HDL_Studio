@@ -9,7 +9,7 @@ from PySide6.QtGui import QPixmap, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from project.project import open_project
-from hds.import_bd import import_bd
+from formats.import_bd import import_bd
 from gui import bd_editor, bd_dialogs
 
 app = QApplication(sys.argv)

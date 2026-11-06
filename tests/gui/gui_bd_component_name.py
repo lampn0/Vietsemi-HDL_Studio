@@ -1,5 +1,5 @@
 """Component name text: click selects one name line, drag moves the text, double-click edits
-it; undo back to the saved state clears the title "*" (which HDS puts right after the view
+it; undo back to the saved state clears the title "*" (which the legacy tool puts right after the view
 name: "lib/unit/view * (Block Diagram)"). Real app path, visible window."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

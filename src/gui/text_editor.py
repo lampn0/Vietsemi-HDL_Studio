@@ -1,4 +1,4 @@
-"""HDL text editor window (the HDS DesignPad equivalent).
+"""HDL text editor window (the legacy tool DesignPad equivalent).
 
     CodeEditor        QPlainTextEdit with a line-number gutter (error lines in red), current
                       line highlight, Verilog highlighting and soft tabs
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (QDockWidget, QHBoxLayout, QInputDialog, QLabel, Q
                                QTextEdit, QWidget)
 
 from hdl.parser import check_text
+from .branding import install_app_icon
 from .code_view import VerilogHighlighter
 
 
@@ -136,6 +137,7 @@ class TextEditorWindow(QMainWindow):
         makes the text read-only (protected library, lock held by someone else ...).
         """
         super().__init__()
+        install_app_icon()                  # Vietsemi mark (also when run on its own)
         self.path = path
         self.include_dirs = include_dirs or []
         self.readonly_reason = readonly_reason

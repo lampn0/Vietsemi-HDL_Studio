@@ -7,7 +7,7 @@ from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QPixmap, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu
-from hds.import_bd import import_bd
+from formats.import_bd import import_bd
 from gui import bd_editor, bd_dialogs
 from codegen.bd_codegen import generate_bd
 
@@ -30,7 +30,7 @@ inst = next(i for i in bd.instances if i.name == 'pc_bg_controller_array')
 m = QMenu(); w._component_menu(m, inst, QPointF(inst.x, inst.y), False)
 names = [a.text().replace('&', '') or '-' for a in m.actions()]
 print('  component menu:', names)
-ok('component popup in the HDS order', names == [
+ok('component popup in the legacy order', names == [
     'Open As', 'Change Default View', 'Rotate', 'Flip', '-', 'Cut', 'Copy', 'Paste', 'Delete', '-', 'Connect',
     'Disconnect', 'Autoroute', 'Add Signal Stubs...', 'Add PortIO...', 'Equidistant Ports', 'Port Map Frame', '-',
     'Shape', 'Appearance...', 'Show Text', 'Port Visibility...', '-', 'Generics/Parameters', 'Re-level', 'Update',
@@ -48,7 +48,7 @@ def drive():
     for item in [root] + [root.child(k) for k in range(root.childCount())]:
         d.show_page(item); QTest.qWait(60); titles.append(d.windowTitle()); shots.append(d.grab())
     print('  titles:', titles)
-    ok('six pages with HDS titles', titles == ['BD Object Properties - ' + t for t in (
+    ok('six pages with legacy titles', titles == ['BD Object Properties - ' + t for t in (
         'Components', 'Component Parameters', 'Component Text Visibility', 'Port Map Frame', 'Attributes',
         'Edit Appearance')])
     icons = sum(1 for i in range(d.tree.topLevelItemCount()) if not d.tree.topLevelItem(i).icon(0).isNull())

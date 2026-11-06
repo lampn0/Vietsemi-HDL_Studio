@@ -113,7 +113,7 @@ show(at(200, 150))
 
 # ============================== NETS AND BUSES ==============================
 # N1 signal from open space to open space: default name, no dialog, two dangling ends
-# (as HDS 2021.1: a click in open space adds a corner, a double-click ends the net there)
+# (as the legacy tool: a click in open space adds a corner, a double-click ends the net there)
 win.set_mode('wire'); ids = {w.id for w in win.bd.wires}
 click(at(0, 0)); dclick(at(100, 60))
 nw = new_wires(ids)
@@ -196,11 +196,11 @@ check(nw and modes == ['input', 'output'] and all(p.name == nw[0].net for p in p
 # P1 Add Port In: the port outline follows the cursor; on a dangling end it attaches and takes the name
 win.set_mode('port_in'); show(at(100, 60))
 move(at(150, 300))
-check(sc._ghost is not None and getattr(sc._ghost[1], 'ghost', False), 'P1 adding a port shows its outline (as HDS)')
+check(sc._ghost is not None and getattr(sc._ghost[1], 'ghost', False), 'P1 adding a port shows its outline (as the legacy tool)')
 s0w = next(w for w in wires_of(s0.net) if not w.end or not w.start)
 which = 'end' if not s0w.end else 'start'
 end = QPointF(*(s0w.points[-1] if which == 'end' else s0w.points[0]))
-n = len(win.bd.port_ios); click(end)          # the cursor is the preview's wire end (as HDS)
+n = len(win.bd.port_ios); click(end)          # the cursor is the preview's wire end (as the legacy tool)
 pio = win.bd.port_ios[-1] if len(win.bd.port_ios) > n else None
 s0w = next(w for w in win.bd.wires if w.id == s0w.id)
 check(pio is not None and pio.name == s0.net and getattr(s0w, which) == f'pio:{pio.id}',

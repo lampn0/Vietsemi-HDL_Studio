@@ -9,4 +9,4 @@ Files that are not source code.
 | `scripts/` | build and packaging scripts: `HDLStudio.spec` (PyInstaller), `build_windows.ps1`, `build_linux.sh`; `check_docs.py` (docstrings and doc links check) |
 
 Icons of the application are drawn in code (`src/gui/icons.py`, `dm_icons.py`), so there
-are no icon files to ship. Do not copy HDS's own bitmaps here: they belong to Siemens EDA.
+are no icon files to ship. Do not copy another tool's bitmaps here.

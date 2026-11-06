@@ -479,7 +479,7 @@ class ComponentPropertiesDialog(ObjectPropertiesDialog):
         self.buttons['<< Clear'].setEnabled(self.table.rowCount() > 0)
 
     def _add_clicked(self):
-        """Add >> (Shift+click adds all, as in HDS)."""
+        """Add >> (Shift+click adds all, as in the legacy tool)."""
         from PySide6.QtWidgets import QApplication
         if QApplication.keyboardModifiers() & Qt.ShiftModifier:
             return self._add_all()
@@ -742,10 +742,9 @@ class FramePropertiesDialog(QDialog):
 
 
 def library_of_file(project, path: str, fallback: str) -> str:
-    """Library whose HDL folder holds `path`."""
-    d = os.path.normcase(os.path.abspath(os.path.dirname(path)))
+    """Library whose HDL folder holds `path` (directly or in a sub-folder)."""
     if project is not None:
         for lib in project.libraries:
-            if any(os.path.normcase(os.path.abspath(x)) == d for x in lib.hdl_dirs):
+            if lib.owns(path):
                 return lib.name
     return fallback

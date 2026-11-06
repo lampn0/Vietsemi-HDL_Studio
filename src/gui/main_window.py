@@ -1,6 +1,6 @@
 """The state diagram editor window (MainWindow).
 
-Layout, as in HDS 2021.1: the diagram canvas (diagram.FsmScene / FsmGraphicsView) in the
+Layout, as in the legacy tool: the diagram canvas (diagram.FsmScene / FsmGraphicsView) in the
 middle, one page at a time (State Diagram, Signals Table, Parameters Table: the tab bar is
 hidden, pages are reached from the Structure Navigator and the menus), the Diagram Browser
 (Structure Navigator + Content) on the right, and HDL Studio's own Properties / Messages docks,
@@ -12,11 +12,12 @@ Data flow:
     the window dirty, records an undo step (undo.SnapshotUndo) and schedules regenerate(),
     which regenerates the HDL text (shown in the hidden code pane and used for warnings);
   - saving goes through the EditorContext when the window was opened from the Design Manager
-    (locks, write-back to the HDS .sm), or straight to a file when standalone.
+    (locks, write-back to the legacy tool .sm), or straight to a file when standalone.
 """
 from __future__ import annotations
 
-from version import APP_NAME, about_text
+from version import APP_NAME
+from .branding import install_app_icon, show_about
 import os
 
 from PySide6.QtCore import QEvent, QObject, QSettings, QSize, Qt, QTimer
@@ -28,13 +29,16 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QGraphicsIt
 
 from codegen.fsm_codegen import generate
 from examples import traffic_light
-from hds.import_sm import import_sm
+from formats.import_sm import import_sm
+from formats.names import META_DIR
 from model import ENCODINGS, LANGUAGES, STATE_DECLS, FsmView, State, Transition
 from .code_view import CodeView
 from .diagram import FsmGraphicsView, FsmScene, _BoxItem, apply_select_filter
 from .icons import icon
+from . import editor_common as EC
 from .menus import arrange_menus, fsm_menus
-from .toolbars import FSM_KEYS, FSM_TOOLBAR, build_toolbar
+from .toolbars import FSM_KEYS, FSM_TOOLBARS, build_toolbars, fill_toolbars_menu
+from .panels import PanelCommands
 from .props import PropertiesPanel
 from .tables import ParametersTable, SignalsTable
 from .undo import SnapshotUndo, load_view_state, save_view_state
@@ -43,7 +47,7 @@ MONO = QFont('Courier New', 9)
 LANG_LABEL = {'systemverilog': 'SystemVerilog', 'verilog': 'Verilog 2005'}
 
 
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow, PanelCommands):
     """State machine editor. Standalone (files chosen by the user) or opened
     from the Design Manager with an EditorContext (library/unit/view)."""
 
@@ -52,6 +56,7 @@ class MainWindow(QMainWindow):
         `context` is the EditorContext given by the Design Manager (None = standalone editor).
         """
         super().__init__()
+        install_app_icon()                  # Vietsemi mark (also when run on its own)
         self.context = context
         self.view: FsmView = view or traffic_light()
         self.machine = self.view.machines[0]
@@ -68,7 +73,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.canvas, 'State Diagram')
         self.tabs.addTab(self.signals_tab, 'Signals Table')
         self.tabs.addTab(self.params_tab, 'Parameters Table')
-        # as in HDS one page at a time, reached from the Structure Navigator and the menus
+        # as in the legacy tool one page at a time, reached from the Structure Navigator and the menus
         self.tabs.tabBar().hide()
         self.tabs.setDocumentMode(True)
         self.tabs.currentChanged.connect(lambda _i: self.update_title())
@@ -79,7 +84,7 @@ class MainWindow(QMainWindow):
         cl.addWidget(self.code_title); cl.addWidget(self.code)
         split.addWidget(code_box)
         split.setSizes([900, 600])
-        code_box.hide()                 # HDS has no HDL pane in the diagram window (HDL > View Generated HDL)
+        code_box.hide()                 # The legacy tool has no HDL pane in the diagram window (HDL > View Generated HDL)
         self.code_pane = code_box
         self.setCentralWidget(split)
 
@@ -87,9 +92,9 @@ class MainWindow(QMainWindow):
         dock = QDockWidget('Properties', self); dock.setWidget(self.props)
         dock.setObjectName('props')
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
-        # Diagram Browser on the right with the Structure Navigator, as in HDS
+        # Diagram Browser on the right with the Structure Navigator, as in the legacy tool
         self.nav = QTreeWidget(); self.nav.setHeaderLabel('Structure Navigator')
-        # Content (under the navigator, as in HDS): the objects of the machine by kind
+        # Content (under the navigator, as in the legacy tool): the objects of the machine by kind
         self.content = QTreeWidget(); self.content.setHeaderLabels(['Name', 'Concurrent Machine'])
         self.content.itemClicked.connect(self._content_clicked)
         browser = QSplitter(Qt.Vertical)
@@ -109,7 +114,7 @@ class MainWindow(QMainWindow):
         self.log_dock = log_dock
         self.resizeDocks([log_dock], [110], Qt.Vertical)
         self.resizeDocks([dock, nav_dock], [330, 230], Qt.Horizontal)
-        # HDL Studio's own panels: kept, hidden at start so the window looks like HDS
+        # HDL Studio's own panels: kept, hidden at start so the window looks like the legacy tool
         dock.hide()
         log_dock.hide()
 
@@ -121,22 +126,32 @@ class MainWindow(QMainWindow):
             a.triggered.connect(lambda checked=False, w=widget: self.tabs.setCurrentWidget(w))
             self.addAction(a)
         about = QAction(f'About {APP_NAME}', self)
-        about.triggered.connect(lambda: QMessageBox.about(self, APP_NAME, about_text('State machine editor')))
+        about.triggered.connect(lambda: show_about(self, 'State machine editor'))
         self.addAction(about)
         self._build_menu_commands()
-        arrange_menus(self, fsm_menus(standalone=self.context is None))
-        self.statusBar().addWidget(QLabel('Ready'))      # as HDS when no message is shown
+        self._build_toolbars()
+        arrange_menus(self, fsm_menus(standalone=self.context is None, machines=self._fill_open_machine,
+                                      delete_machine=self._fill_delete_machine,
+                                      toolbars=lambda m: fill_toolbars_menu(self, m),
+                                      windows=lambda m: EC.fill_windows_menu(self, m)))
+        self.statusBar().addWidget(QLabel('Ready'))      # as the legacy tool when no message is shown
         self.regen_timer = QTimer(self); self.regen_timer.setSingleShot(True); self.regen_timer.setInterval(250)
         self.regen_timer.timeout.connect(self.regenerate)
 
         self.scene.changed_model.connect(self.model_changed)
         self.scene.selectionChanged.connect(self.on_selection)
+        self.scene.selectionChanged.connect(self.update_menu_states)
+        QApplication.clipboard().dataChanged.connect(self.update_menu_states)
         self.scene.edit_requested.connect(self.edit_object)
         self.scene.message.connect(lambda m: self.statusBar().showMessage(m, 5000))
         self.scene.condition_edit_requested.connect(self.edit_condition_inline)
         self.scene.rename_requested.connect(self.rename_state_inline)
         self.scene.text_edit_requested.connect(self.edit_text_inline)
         self.scene.popup_requested.connect(self.show_popup)
+        self.scene.comment_add_requested.connect(self.add_comment)
+        self.scene.open_down_requested.connect(lambda st: self.show_level(st.id))
+        self.scene.panel_add_requested.connect(self.add_panel)
+        self.scene.comment_edit_requested.connect(self.edit_comment)
         # a double-click on a declaration block: the page where its text is edited
         self.scene.decl_edit_requested.connect(
             lambda key: self.tabs.setCurrentWidget(self.signals_tab) if key == 'status' else self.edit_decl_block(key))
@@ -169,7 +184,7 @@ class MainWindow(QMainWindow):
         if self.context is None:
             self._act(fm, '&New', self.new_file, QKeySequence.New)
             self._act(fm, '&Open...', self.open_file, QKeySequence.Open)
-            self._act(fm, '&Import HDS state machine (.sm)...', self.import_file)
+            self._act(fm, '&Import state machine (.sm)...', self.import_file)
             fm.addSeparator()
             self.act_save = self._act(fm, '&Save', self.save_file, QKeySequence.Save, 'save')
             self._act(fm, 'Save &As...', self.save_as)
@@ -206,7 +221,9 @@ class MainWindow(QMainWindow):
                            ('junction_if', 'Add IF Junction'), ('junction_case', 'Add CASE Junction'),
                            ('link', 'Add Link'), ('interrupt', 'Add Interrupt Point'),
                            ('recovery', 'Add Recovery State Point'), ('reset', 'Add Reset Point'),
-                           ('clock', 'Add Clock Point')]:
+                           ('clock', 'Add Clock Point'), ('enable', 'Add Enable'), ('wait_state', 'Add Wait State'),
+                           ('hier_state', 'Add Hierarchical State'), ('comment', 'Comment Text'),
+                           ('panel', 'Add Panel')]:
             a = QAction(icon(mode), text, self); a.setCheckable(True)
             a.triggered.connect(lambda checked, m=mode: self.set_mode(m))
             group.addAction(a)
@@ -226,7 +243,6 @@ class MainWindow(QMainWindow):
             self.toolbar_actions['generate_root'] = QAction('Generate through design root', self)
             self.toolbar_actions['generate_root'].triggered.connect(
                 lambda: self.context.generate_hierarchy(self.view, self, 'root'))
-        build_toolbar(self, self.toolbar_actions, FSM_TOOLBAR, FSM_KEYS)
         self.canvas.end_command.connect(lambda: self.set_mode('select'))
         self.canvas.tool_done.connect(lambda: self.set_mode(self._mode_before_area))
         self.canvas.nudged.connect(self.scene.changed_model.emit)
@@ -235,7 +251,13 @@ class MainWindow(QMainWindow):
         self.select_filter = 'any'
         self.addAction(act_del)
 
-        gt = QToolBar('Generation'); gt.setObjectName('gen')
+
+    def _build_toolbars(self):
+        """The legacy toolbars (Standard, State Diagram Tools, HDL Tools, Tasks: toolbars.FSM_TOOLBARS),
+        then HDL Studio's own Generation toolbar (language, state declaration, encoding)."""
+        self.toolbars = build_toolbars(self, self.toolbar_actions, FSM_TOOLBARS, FSM_KEYS)
+        EC.install_tooltip_filter(self, self.toolbars)
+        gt = QToolBar('Generation', self); gt.setObjectName('gen')
         self.addToolBar(gt)
         self.tb_lang = QComboBox(); [self.tb_lang.addItem(LANG_LABEL[l], l) for l in LANGUAGES]
         self.tb_lang.setToolTip('Target language')
@@ -278,7 +300,8 @@ class MainWindow(QMainWindow):
 
     def _is_text(self, item) -> bool:
         """True for the text items of the diagram (used by Select Text / Select Shapes)."""
-        return isinstance(item, _BoxItem)
+        from .diagram import CommentTextItem
+        return isinstance(item, (_BoxItem, CommentTextItem))
 
     def run_checks(self):
         """Design rule check: generator warnings plus a syntax check of the generated HDL."""
@@ -294,10 +317,12 @@ class MainWindow(QMainWindow):
         self.log.addItem(f'Design rule check: {len(diags)} error(s), {len(warnings)} warning(s)')
 
     def _build_menu_commands(self):
-        """Commands of the HDS menu bar that the toolbar does not have (File, View, Diagram,
-        Options, Window, Help), added to toolbar_actions under the keys fsm_menus() names."""
-        from PySide6.QtWidgets import QApplication, QMenu, QToolBar
+        """Commands of the legacy menu bar that the toolbar does not have (File, Edit, View, Diagram,
+        Tasks, Add, Options, Window, Help), added to toolbar_actions under the keys fsm_menus() names.
+        Commands without a slot are greyed (no counterpart in this version)."""
+        from PySide6.QtWidgets import QMenu
         mgr = self.context.manager if self.context is not None else None
+        ro = self.scene.readonly
 
         def act(key, text, slot=None, shortcut='', checkable=False, checked=False):
             """Create the action `key` in toolbar_actions: a check box action (`checkable`, slot gets the
@@ -306,45 +331,108 @@ class MainWindow(QMainWindow):
             a = QAction(text, self)
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
+                self.addAction(a)                # the shortcut works without opening the menu
             if checkable:
                 a.setCheckable(True); a.setChecked(checked)
                 if slot is not None:
                     a.toggled.connect(slot)
             elif slot is not None:
                 a.triggered.connect(slot)
-            else:
+            if slot is None:
                 a.setEnabled(False)
+                a.setProperty('available', False)
             self.toolbar_actions[key] = a
             return a
+
+        def edit(fn):
+            """A slot for an editing command: none in a read-only diagram."""
+            return None if ro else fn
+        hist = EC.History.of(mgr if mgr is not None else self)
+        # File
+        new_content = act('new_content', 'Design Content...', mgr.new_unit if mgr else self.new_file)
+        new_tb = act('new_testbench', 'Test Bench...')
+        a_new = act('new', 'New', mgr.new_unit if mgr else self.new_file)
+        menu = QMenu(self)
+        menu.addAction(new_content); menu.addAction(new_tb)
+        a_new.setMenu(menu)
+        act('open_up', 'Open Up', self.open_up)
+        act('open_down', 'Down', self.open_down)
+        act('back', 'Back', lambda: hist.go(-1))
+        act('forward', 'Forward', lambda: hist.go(1))
+        act('save_as', 'Save As...', self.save_as if self.context is None else None)
         act('page_setup', 'Page Setup...', mgr.page_setup if mgr else None)
+        act('print', 'Print...', lambda: EC.print_diagram(self, self.scene))
+        act('print_window', 'Print Window...', lambda: EC.print_diagram(self, self.scene, self.canvas))
+        act('document', 'Single Level', lambda: EC.document_single_level(
+            self, self.scene, self.view.unit, f'{self.view.library}/{self.view.unit}/{self.view.view}',
+            generate(self.view)[0], self._dir()))
         act('close_window', 'Close Window', self.close)
         act('exit', 'Exit', QApplication.instance().closeAllWindows)
-        act('refresh', 'Refresh', lambda: self.canvas.viewport().update(), 'F5')
+        # Edit
+        act('cut', 'Cut', edit(self.cut))
+        act('copy', 'Copy', self.copy)
+        act('paste', 'Paste', edit(self.paste))
+        act('paste_system', 'Paste from system clipboard', edit(self.paste_system))
+        act('find', 'Find...', lambda: self.find_replace(False))
+        act('replace', 'Replace...', lambda: self.find_replace(True))
+        for key, text, how in (('align_left', 'Align Left', 'left'), ('align_center', 'Align Center', 'center'),
+                               ('align_right', 'Align Right', 'right'), ('align_top', 'Align Top', 'top'),
+                               ('align_middle', 'Align Middle', 'middle'),
+                               ('align_bottom', 'Align Bottom', 'bottom')):
+            act(key, text, edit(lambda checked=False, h=how: self._moved(EC.align(self._ordered_selection(), h))))
+        act('distribute_h', 'Distribute Horizontally',
+            edit(lambda: self._moved(EC.distribute(self.scene.selectedItems(), True))))
+        act('distribute_v', 'Distribute Vertically',
+            edit(lambda: self._moved(EC.distribute(self.scene.selectedItems(), False))))
+        act('expression_builder', 'Expression Builder', self.expression_builder)
+        # View
+        act('refresh', 'Refresh', self._refresh_view, 'F5')
         act('grid', 'Grid', lambda on: (setattr(self.canvas, 'show_grid', on), self.canvas.viewport().update()),
             checkable=True, checked=getattr(self.canvas, 'show_grid', True))
-        tb = act('toolbars', 'Toolbars', lambda: None)
-        menu = QMenu(self)
-        menu.aboutToShow.connect(lambda: (menu.clear(), [menu.addAction(t.toggleViewAction())
-                                                          for t in self.findChildren(QToolBar)]))
-        tb.setMenu(menu)
+        act('snap_grid', 'Snap to Grid', self._set_snap, checkable=True, checked=True)
         act('status_bar', 'Status Bar', lambda on: self.statusBar().setVisible(on), checkable=True, checked=True)
+        self.object_tips = True
+        act('object_tips', 'Object Tips', lambda on: setattr(self, 'object_tips', on), checkable=True, checked=True)
+        self.canvas.viewport().installEventFilter(self)
         a = act('diagram_browser', 'Diagram Browser', lambda on: self.nav_dock.setVisible(on),
                 checkable=True, checked=True)
         self.nav_dock.visibilityChanged.connect(a.setChecked)
         act('signals_table', 'Signals Table', lambda: self.tabs.setCurrentWidget(self.signals_tab))
+        self.build_panel_actions(act, ro)
+        # Diagram
+        act('copy_picture', 'Copy Picture', self.copy_picture)
         act('compiler_directives', 'Compiler Directives...', self.compiler_directives)
+        act('reverse_direction', 'Reverse Direction', edit(self.reverse_direction))
+        act('rename_machine', 'Rename Concurrent Machine...', edit(self.rename_machine))
+        for key, text, kind in (('change_state', 'State', 'state'), ('change_junction', 'Junction', 'junction'),
+                                ('change_link', 'Link', 'link')):
+            act(key, text, edit(lambda checked=False, k=kind: self.change_to(k)))
         act('sm_props', 'State Machine Properties...', self.machine_properties)
+        # Tasks: the checks of the diagram are the Check flow here
+        act('check', 'Run Single', self.run_checks)
+        # Add
+        for key, text, mode in (('add_input_port', 'Input Port', 'input'), ('add_output_port', 'Output Port', 'output'),
+                                ('add_inout_port', 'InOut Port', 'inout'), ('add_local_signal', 'Local Signal', 'local')):
+            act(key, text, edit(lambda checked=False, m=mode: self.add_signal(m)))
+        act('add_machine', 'Concurrent State Machine', edit(self.add_machine))
+        # Options / Window / Help
         act('main_settings', 'Main...', mgr.main_settings if mgr else None)
         act('verilog_options', 'Verilog...', mgr.verilog_options if mgr else None)
-        act('log_window', 'HDS Log Window', lambda: (self.log_dock.show(), self.log_dock.raise_()))
+        act('log_window', 'Log Window', lambda: (self.log_dock.show(), self.log_dock.raise_()))
         act('design_manager', 'Design Manager',
             (lambda: (mgr.show(), mgr.raise_(), mgr.activateWindow())) if mgr else None)
-        act('shortcuts_help', 'Keyboard Shortcuts', mgr._show_shortcuts if mgr else None)
-        # F2 (edit the selected text) is in no HDS menu: keep its shortcut on the window
+        act('component_browser', 'Component Browser',
+            getattr(mgr, 'show_component_browser', None) if mgr else None)
+        act('shortcuts_help', 'Keyboard Shortcuts', mgr._show_shortcuts if mgr else self._show_shortcuts)
+        act('help_manuals', 'Help and Manuals', EC.open_user_guide, 'F1')
+        act('regex_help', 'Regular Expressions', lambda: EC.show_regex_help(self))
+        # F2 (edit the selected text) is in no legacy menu: keep its shortcut on the window
         self.addAction(self.act_edit_text)
+        self._history = hist
+        hist.visited(self)
 
     def edit_object(self, obj):
-        """Double-click on an object. States and transitions: the HDS "SM Object Properties"
+        """Double-click on an object. States and transitions: the legacy tool "SM Object Properties"
         dialog; other objects: HDL Studio's Properties panel (shown when hidden)."""
         from model import State, Transition
         if isinstance(obj, (State, Transition)) and not self.scene.readonly:
@@ -359,10 +447,494 @@ class MainWindow(QMainWindow):
         self.props_dock.show()
         self.props_dock.raise_()
 
+    # -- clipboard ------------------------------------------------------------------------
+    CLIP_MIME = 'application/x-hdlstudio-fsm'
+
+    def _selected_nodes(self) -> list:
+        """Model objects of the selected states, junctions, links and points (selection order)."""
+        from .diagram import NodeItem
+        return [it.obj for it in self._ordered_selection() if isinstance(it, NodeItem)]
+
+    def copy(self):
+        """Edit > Copy: the selected nodes and the transitions between them, to the clipboard (as data
+        another state diagram window can paste, and as text for other programs)."""
+        import json
+        from dataclasses import asdict
+        from PySide6.QtCore import QMimeData
+        from model import Junction, Link, Point
+        nodes = self._selected_nodes()
+        if not nodes:
+            return
+        ids = {n.id for n in nodes}
+        kinds = {State: 'state', Junction: 'junction', Link: 'link', Point: 'point'}
+        data = {'nodes': [dict(asdict(n), _kind=kinds[type(n)]) for n in nodes if type(n) in kinds],
+                'transitions': [asdict(t) for t in self.machine.transitions if t.src in ids and t.dst in ids]}
+        for d in data['nodes'] + data['transitions']:
+            d.pop('orig', None)
+        mime = QMimeData()
+        mime.setData(self.CLIP_MIME, json.dumps(data).encode())
+        mime.setText('\n'.join(n.name for n in nodes if isinstance(n, State)))
+        QApplication.clipboard().setMimeData(mime)
+        self.statusBar().showMessage(f'Copied {len(data["nodes"])} object(s)', 3000)
+
+    def cut(self):
+        """Edit > Cut: copy, then delete the selection."""
+        if self._selected_nodes():
+            self.copy()
+            self.scene.delete_selected()
+
+    def can_paste(self) -> bool:
+        """True when the clipboard holds state diagram objects."""
+        md = QApplication.clipboard().mimeData()
+        return md is not None and md.hasFormat(self.CLIP_MIME)
+
+    def paste(self):
+        """Edit > Paste: the copied objects, with new ids, offset from where they were (or under the
+        mouse), states renamed when the name is taken; they are selected afterwards."""
+        import json
+        from model import Junction, Link, Point
+        from .diagram import GRID
+        if not self.can_paste() or self.machine is None:
+            return
+        data = json.loads(bytes(QApplication.clipboard().mimeData().data(self.CLIP_MIME)).decode())
+        m = self.machine
+        cls = {'state': State, 'junction': Junction, 'link': Link, 'point': Point}
+        coll = {'state': m.states, 'junction': m.junctions, 'link': m.links, 'point': m.points}
+        names = {s.name for s in m.states}
+        new_ids: dict[str, str] = {}
+        off = 2 * GRID
+        added = []
+        for d in data.get('nodes', []):
+            kind = d.pop('_kind')
+            if kind == 'point' and d.get('kind') in ('reset', 'clock', 'recovery', 'enable') and m.point(d['kind']):
+                continue                        # one of each per machine
+            obj = cls[kind](**{k: v for k, v in d.items() if k in cls[kind].__dataclass_fields__})
+            old = obj.id
+            obj.id = m.new_id({'state': 's', 'junction': 'j', 'link': 'l', 'point': 'p'}[kind])
+            new_ids[old] = obj.id
+            obj.x += off; obj.y += off
+            obj.parent = ''
+            if isinstance(obj, State):
+                if obj.actions_x is not None:
+                    obj.actions_x += off; obj.actions_y += off
+                base, k = obj.name, 0
+                while obj.name in names:
+                    k += 1
+                    obj.name = f'{base}_{k}'
+                names.add(obj.name)
+            coll[kind].append(obj)
+            added.append(obj.id)
+        for d in data.get('transitions', []):
+            if d['src'] in new_ids and d['dst'] in new_ids:
+                t = Transition(**{k: v for k, v in d.items() if k in Transition.__dataclass_fields__})
+                t.id, t.src, t.dst = m.new_id('t'), new_ids[d['src']], new_ids[d['dst']]
+                t.points = [[x + off, y + off] for x, y in t.points]
+                if t.label_x is not None:
+                    t.label_x += off; t.label_y += off
+                m.transitions.append(t)
+        self.scene.load(self.view, self.machine)
+        for oid in added:
+            it = self.scene.item_for(oid)
+            if it is not None:
+                it.setSelected(True)
+        self.build_nav()
+        self.scene.changed_model.emit()
+
+    # -- selection helpers ------------------------------------------------------------------
+    def _track_selection(self):
+        """Keep the selected items in the order the user selected them (Align lines up on the first)."""
+        sel = self.scene.selectedItems()
+        order = [i for i in getattr(self, '_sel_order', []) if i in sel]
+        order += [i for i in sel if i not in order]
+        self._sel_order = order
+
+    def _ordered_selection(self) -> list:
+        self._track_selection()
+        return list(self._sel_order)
+
+    def _moved(self, moved: bool):
+        """After Align / Distribute: one undo step when something moved."""
+        if moved:
+            self.scene.refresh_all()
+            self.scene.changed_model.emit()
+
+    def update_menu_states(self):
+        """Grey what has nothing to act on, as the legacy tool: Cut / Copy / Delete without a selection,
+        Paste without copied objects, Align with fewer than two objects, Reverse Direction without a
+        transition, Back / Forward at the ends of the window history, the Add commands of points
+        a machine has already (one clock, reset, recovery point and enable each)."""
+        from .diagram import NodeItem, TransitionItem
+        ro = self.scene.readonly
+        sel = self.scene.selectedItems()
+        acts = self.toolbar_actions
+        EC.update_edit_states(acts, [i for i in self._ordered_selection() if isinstance(i, (NodeItem, TransitionItem))],
+                              self.can_paste(), ro)
+        acts['copy'].setEnabled(bool(self._selected_nodes()))
+        acts['cut'].setEnabled(bool(self._selected_nodes()) and not ro)
+        self.update_panel_states(ro)
+        acts['paste_system'].setEnabled(not ro and bool(QApplication.clipboard().text().strip()))
+        acts['reverse_direction'].setEnabled(not ro and any(isinstance(i, TransitionItem) for i in sel))
+        nodes = [o for o in self._selected_nodes() if type(o).__name__ in ('State', 'Junction', 'Link')]
+        for key, cls in (('change_state', 'State'), ('change_junction', 'Junction'), ('change_link', 'Link')):
+            acts[key].setEnabled(not ro and any(type(o).__name__ != cls for o in nodes))
+        acts['open_down'].setEnabled(any(isinstance(getattr(i, 'obj', None), State) and i.obj.hier for i in sel))
+        acts['open_up'].setEnabled(bool(self.scene.level) or self.context is not None)
+        hist = getattr(self, '_history', None)
+        if hist is not None:
+            acts['back'].setEnabled(hist.can_go(-1))
+            acts['forward'].setEnabled(hist.can_go(1))
+        m = self.machine
+        for kind in ('clock', 'reset', 'recovery', 'enable'):
+            a = self.mode_actions.get(kind)
+            if a is not None and not ro:
+                a.setEnabled(m is None or m.point(kind) is None or a.isChecked())
+
+    def changeEvent(self, e):
+        """Activating the window records it in the Back / Forward history."""
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow() and getattr(self, '_history', None):
+            self._history.visited(self)
+            self.update_menu_states()
+        super().changeEvent(e)
+
+    def eventFilter(self, obj, e):
+        """View > Object Tips off: no tool tips over the diagram."""
+        if obj is self.canvas.viewport() and e.type() == QEvent.ToolTip and not getattr(self, 'object_tips', True):
+            return True
+        return super().eventFilter(obj, e)
+
+    # -- Edit / View / Diagram commands --------------------------------------------------
+    def find_replace(self, replace: bool):
+        """Edit > Find... / Replace...: the texts of the diagram (state names and actions, transition
+        conditions and actions, link targets, CASE expressions); a match is shown by selecting it."""
+        from model import Junction
+
+        def show(obj):
+            def run():
+                it = self.scene.item_for(obj.id) if not isinstance(obj, Transition) else \
+                    self.scene.trans_items.get(obj.id)
+                if it is not None:
+                    self.tabs.setCurrentWidget(self.canvas)
+                    self.scene.clearSelection(); it.setSelected(True)
+                    self.canvas.centerOn(it)
+            return run
+
+        def field(where, obj, attr):
+            return EC.TextField(where, lambda: getattr(obj, attr), lambda v: setattr(obj, attr, v), show(obj))
+
+        def fields():
+            m = self.machine
+            out = []
+            def rename(state):
+                def run(new):
+                    for lk in m.links:              # links to the state follow its name
+                        if lk.target == state.name:
+                            lk.target = new
+                    state.name = new
+                return run
+            for s in m.states:
+                out.append(EC.TextField(f'State {s.name}', lambda s=s: s.name, rename(s), show(s)))
+                for attr, label in (('entry_actions', 'entry actions'), ('in_actions', 'state actions'),
+                                    ('exit_actions', 'exit actions')):
+                    if getattr(s, attr):
+                        out.append(field(f'State {s.name} {label}', s, attr))
+            for t in m.transitions:
+                src, dst = m.node(t.src), m.node(t.dst)
+                name = f'{getattr(src, "name", t.src)} -> {getattr(dst, "name", t.dst)}'
+                if t.cond:
+                    out.append(field(f'Transition {name} condition', t, 'cond'))
+                if t.actions:
+                    out.append(field(f'Transition {name} actions', t, 'actions'))
+            out += [field(f'Link {lk.target}', lk, 'target') for lk in m.links]
+            out += [field('CASE junction', j, 'expr') for j in m.junctions if isinstance(j, Junction) and j.expr]
+            return out
+
+        def done():
+            self.scene.load(self.view, self.machine)
+            self.build_nav()
+            self.scene.changed_model.emit()
+        dlg = EC.FindReplaceDialog(self, fields, done, replace, self.scene.readonly)
+        dlg.show()
+        self._find_dialog = dlg
+
+    def expression_builder(self):
+        """Edit > Expression Builder: build a condition from the signals and operators of the diagram
+        and put it on the selected transition (or copy it)."""
+        from .expression_builder import ExpressionBuilder
+        sel = [i.obj for i in self.scene.selectedItems() if isinstance(getattr(i, 'obj', None), Transition)]
+        t = sel[0] if len(sel) == 1 else None
+        dlg = ExpressionBuilder(self, [s.name for s in self.view.signals], t.cond if t else '',
+                                target='transition condition' if t else '')
+        if dlg.exec() and t is not None and not self.scene.readonly and dlg.text() != t.cond:
+            t.cond = dlg.text()
+            self.scene.refresh_transitions_from(t.src)
+            self.scene.changed_model.emit()
+
+    def _refresh_view(self):
+        """View > Refresh: draw the diagram again from the model."""
+        st = self.canvas.state()
+        self.scene.load(self.view, self.machine)
+        self.canvas.restore(st)
+
+    def _set_snap(self, on: bool):
+        """View > Snap to Grid: objects land on the grid when placed or moved (or anywhere)."""
+        from . import diagram
+        diagram.SNAP_ON[0] = on
+
+    def copy_picture(self):
+        """Diagram > Copy Picture: the selection (or the diagram) as a picture on the clipboard."""
+        EC.copy_picture(self.scene)
+        self.statusBar().showMessage('Picture copied to the clipboard', 3000)
+
+    def reverse_direction(self):
+        """Diagram > Reverse Direction: the selected transitions go the other way."""
+        from .diagram import TransitionItem
+        items = [i for i in self.scene.selectedItems() if isinstance(i, TransitionItem)]
+        for it in items:
+            it.reverse()
+        if items:
+            self.scene.changed_model.emit()
+
+    def rename_machine(self):
+        """Diagram > Rename Concurrent Machine...: a new name for the machine shown."""
+        name, ok = QInputDialog.getText(self, 'Rename Concurrent Machine', 'Machine name:', text=self.machine.name)
+        name = name.strip()
+        if not ok or not name or name == self.machine.name:
+            return
+        if any(m.name == name for m in self.view.machines):
+            QMessageBox.warning(self, 'Rename Concurrent Machine', f'A machine called {name} exists already.')
+            return
+        self.machine.name = name
+        self.build_nav()
+        self.update_title()
+        self.model_changed()
+
+    def _fill_open_machine(self, menu):
+        """Diagram > Open Machine: one entry per concurrent machine; the one shown is checked."""
+        menu.clear()
+        for m in self.view.machines:
+            a = menu.addAction(m.name)
+            a.setCheckable(True)
+            a.setChecked(m is self.machine)
+            a.triggered.connect(lambda checked=False, x=m: self.show_machine(x))
+
+    def _fill_delete_machine(self, menu):
+        """Diagram > Delete Machine: one entry per concurrent machine (the last one cannot go)."""
+        menu.clear()
+        for m in self.view.machines:
+            a = menu.addAction(m.name)
+            a.setEnabled(len(self.view.machines) > 1 and not self.scene.readonly)
+            a.triggered.connect(lambda checked=False, x=m: self.delete_machine(x))
+
+    def show_machine(self, m):
+        """Show concurrent machine `m` in the diagram."""
+        if m is self.machine:
+            return
+        self.machine = m
+        self.scene.level = ''
+        self.scene.load(self.view, m)
+        apply_select_filter(self.scene, getattr(self, 'select_filter', 'any'), self._is_text)
+        self.sync_toolbar()
+        self.build_nav()
+        self.update_title()
+        self.canvas.fit()
+
+    def delete_machine(self, m):
+        """Diagram > Delete Machine > name: remove that concurrent machine (after asking)."""
+        if len(self.view.machines) < 2:
+            return
+        if QMessageBox.question(self, 'Delete Machine', f'Delete the state machine {m.name} and all its states?') \
+                != QMessageBox.Yes:
+            return
+        self.view.machines.remove(m)
+        if m is self.machine:
+            self.machine = None
+            self.show_machine(self.view.machines[0])
+        self.build_nav()
+        self.model_changed()
+
+    def add_machine(self):
+        """Add > Concurrent State Machine: a new, empty machine in the same module, shown at once."""
+        from model import Machine
+        names = {m.name for m in self.view.machines}
+        k = len(self.view.machines)
+        while f'csm{k}' in names:
+            k += 1
+        cur = self.machine
+        m = Machine(name=f'csm{k}', current_state_name=f'csm{k}_current_state',
+                    next_state_name=f'csm{k}_next_state', encoding=cur.encoding if cur else 'sequential',
+                    state_decl=cur.state_decl if cur else 'parameter')
+        self.view.machines.append(m)
+        self.show_machine(m)
+        self.model_changed()
+
+    def add_signal(self, mode: str):
+        """Add > Input Port / Output Port / InOut Port / Local Signal: a new row of the Signals Table
+        (shown, with the new name ready to edit)."""
+        from model import Signal
+        names = {s.name for s in self.view.signals}
+        base = {'input': 'in', 'output': 'out', 'inout': 'io', 'local': 'sig'}[mode]
+        k = 0
+        while f'{base}{k}' in names:
+            k += 1
+        sig = Signal(name=f'{base}{k}', mode=mode, type='logic' if self.view.language == 'systemverilog' else 'wire')
+        self.view.signals.append(sig)
+        self.signals_tab.set_rows(self.view.signals)
+        self.tabs.setCurrentWidget(self.signals_tab)
+        row = len(self.view.signals) - 1
+        t = self.signals_tab.table
+        if row < t.rowCount():
+            t.setCurrentCell(row, 0)
+            t.editItem(t.item(row, 0))
+        self.model_changed()
+
+    def change_to(self, kind: str):
+        """Diagram > Change To > State / Junction / Link: the selected nodes become that kind of node, at
+        the same place and with the same transitions (a link cannot start a transition: a node with
+        transitions leaving it does not become a link)."""
+        from model import Junction, Link
+        m = self.machine
+        changed = 0
+        for old in self._selected_nodes():
+            if type(old).__name__ == kind.capitalize() or not isinstance(old, (State, Junction, Link)):
+                continue
+            if kind == 'link' and m.outgoing(old.id):
+                self.statusBar().showMessage(f'{getattr(old, "name", "junction")}: transitions leave it, '
+                                             'it cannot become a link', 5000)
+                continue
+            common = dict(id=old.id, x=old.x, y=old.y, parent=old.parent)
+            if kind == 'state':
+                base = old.target if isinstance(old, Link) and old.target not in ('', 'Link') else                     self.scene._unique_state_name()
+                name, k = base, 0
+                while m.state_by_name(name) is not None:
+                    k += 1
+                    name = f'{base}_{k}'
+                new = State(name=name, **common)
+            elif kind == 'junction':
+                new = Junction(symbol=getattr(self.view, 'default_junction_symbol', ''), **common)
+            else:
+                new = Link(target=getattr(old, 'name', 'Link'), **common)
+            for coll in (m.states, m.junctions, m.links):
+                if old in coll:
+                    coll.remove(old)
+            {'state': m.states, 'junction': m.junctions, 'link': m.links}[kind].append(new)
+            changed += 1
+        if changed:
+            self.scene.load(self.view, m)
+            self.build_nav()
+            self.scene.changed_model.emit()
+
+    # -- panels (panels.PanelCommands) ---------------------------------------------------
+    def panels_model(self) -> list:
+        return self.machine.panels if self.machine is not None else []
+
+    def panel_new_id(self) -> str:
+        return self.machine.new_id('pn')
+
+    def panels_reload(self):
+        self.scene.level = ''                   # panels are on the top level
+        st = self.canvas.state()
+        self.scene.load(self.view, self.machine)
+        self.canvas.restore(st)
+
+    def panels_changed(self):
+        self.scene.changed_model.emit()
+
+    # -- hierarchical states ------------------------------------------------------------
+    def open_down(self):
+        """File > Open > Down: show the inside of the selected hierarchical state."""
+        st = next((i.obj for i in self.scene.selectedItems() if isinstance(getattr(i, 'obj', None), State)
+                   and i.obj.hier), None)
+        if st is not None:
+            self.show_level(st.id)
+
+    def open_up(self):
+        """Open Up: from inside a hierarchical state, the level that holds it; from the top level, the
+        diagram that instantiates this design unit (Design Manager)."""
+        if self.scene.level:
+            st = next((s for s in self.machine.states if s.id == self.scene.level), None)
+            self.show_level(st.parent if st is not None else '')
+        elif self.context is not None:
+            EC.open_up(self)
+
+    def show_level(self, level: str):
+        """Show the inside of hierarchical state `level` ('' = the top level of the machine). A
+        hierarchical state shown for the first time gets its entry and exit points, as the legacy
+        tool draws them in a new hierarchical diagram."""
+        from model import Point
+        m = self.machine
+        if level and not any(p.parent == level for p in m.points if p.kind in ('entry', 'exit'))                 and not self.scene.readonly:
+            m.points.append(Point(m.new_id('p'), 'entry', 0.0, 0.0, parent=level))
+            m.points.append(Point(m.new_id('p'), 'exit', 400.0, 0.0, parent=level))
+            self.undo_stack.note_change()
+        self.scene.level = level
+        self.scene.load(self.view, m)
+        apply_select_filter(self.scene, getattr(self, 'select_filter', 'any'), self._is_text)
+        self.update_title()
+        self.update_menu_states()
+        self.canvas.fit()
+
+    def level_path(self) -> str:
+        """Names of the hierarchical states down to the level shown ('' at the top level)."""
+        names, lv = [], self.scene.level
+        by_id = {s.id: s for s in self.machine.states} if self.machine else {}
+        while lv and lv in by_id:
+            names.append(by_id[lv].name)
+            lv = by_id[lv].parent
+        return '/'.join(reversed(names))
+
+    def add_comment(self, pos):
+        """Add > Comment Text: a click on the diagram; the text is typed in a dialog (empty: nothing)."""
+        from model import Comment
+        text, ok = QInputDialog.getMultiLineText(self, 'Comment Text', 'Text:')
+        if not ok or not text.strip() or self.machine is None:
+            return
+        c = Comment(self.machine.new_id('c'), text.rstrip(), pos.x(), pos.y())
+        self.machine.comments.append(c)
+        self.scene.load(self.view, self.machine)
+        it = self.scene.item_for(c.id)
+        if it is not None:
+            self.scene.clearSelection(); it.setSelected(True)
+        self.scene.changed_model.emit()
+
+    def paste_system(self):
+        """Edit > Paste Special > Paste from system clipboard: the text on the system clipboard as a
+        comment text in the middle of the window."""
+        from model import Comment
+        text = QApplication.clipboard().text().rstrip()
+        if not text or self.machine is None:
+            return
+        from .diagram import snap_point
+        pos = snap_point(self.canvas.mapToScene(self.canvas.viewport().rect().center()))
+        c = Comment(self.machine.new_id('c'), text, pos.x(), pos.y())
+        self.machine.comments.append(c)
+        self.scene.level = ''                   # comment texts are on the top level
+        self.scene.load(self.view, self.machine)
+        it = self.scene.item_for(c.id)
+        if it is not None:
+            self.scene.clearSelection(); it.setSelected(True)
+        self.scene.changed_model.emit()
+
+    def edit_comment(self, c):
+        """A double-click on a comment text: edit it (emptied: the comment goes)."""
+        text, ok = QInputDialog.getMultiLineText(self, 'Comment Text', 'Text:', c.text)
+        if not ok or text == c.text:
+            return
+        if text.strip():
+            c.text = text.rstrip()
+        else:
+            self.machine.comments.remove(c)
+        self.scene.load(self.view, self.machine)
+        self.scene.changed_model.emit()
+
+    def _show_shortcuts(self):
+        """Help > Keyboard Shortcuts (stand-alone window)."""
+        from .shortcuts_dialog import show_shortcuts
+        show_shortcuts(self)
+
     # -- popup menus ---------------------------------------------------------------------
     def show_popup(self, item, screen_pos):
-        """The right-click menus of the HDS 2021.1 state diagram, entry for entry as HDS shows
-        them on gc_control_fsm (tests/hds_gui/out/pop_*.png). Transitions have their own
+        """The right-click menus of the legacy state diagram, entry for entry as the legacy tool shows
+        them on gc_control_fsm. Transitions have their own
         (TransitionItem). Entries HDL Studio has no command for yet are disabled.
 
             diagram   Signals Table, Open Up | Undo, Redo | Paste | View Area, Zoom In, Zoom Out,
@@ -382,6 +954,10 @@ class MainWindow(QMainWindow):
         from .diagram import DeclBlockItem, JunctionItem, LinkItem, PointItem, StateItem
         ro = self.scene.readonly
         acts = self.toolbar_actions
+        if item is not None and getattr(item, 'obj', None) is not None and not item.isSelected():
+            # the commands act on the selection: the object clicked becomes it, as in the legacy tool
+            self.scene.clearSelection()
+            item.setSelected(True)
         m = QMenu(self)
 
         def add(text, slot=None, shortcut='', enabled=True):
@@ -404,9 +980,9 @@ class MainWindow(QMainWindow):
         def edit_part(cut=True):
             """The Cut / Copy / Paste / Paste Special / Delete / Appearance part of an object menu."""
             if cut:
-                add('Cut', shortcut='Ctrl+X')
-                add('Copy', shortcut='Ctrl+C')
-            add('Paste', shortcut='Ctrl+V')
+                add('Cut', self.cut, 'Ctrl+X', not ro)
+                add('Copy', self.copy, 'Ctrl+C')
+            add('Paste', self.paste, 'Ctrl+V', not ro and self.can_paste())
             sub('Paste Special', ['Paste from system clipboard'])
             add('Delete', self.scene.delete_selected, 'Del', not ro)
             m.addSeparator()
@@ -424,7 +1000,7 @@ class MainWindow(QMainWindow):
             add('Undo', self.undo_stack.undo, 'Ctrl+Z', self.act_undo.isEnabled())
             add('Redo', self.undo_stack.redo, 'Ctrl+Y', self.act_redo.isEnabled())
             m.addSeparator()
-            add('Paste', shortcut='Ctrl+V')
+            add('Paste', self.paste, 'Ctrl+V', not ro and self.can_paste())
             m.addSeparator()
             add('View Area', self.view_area, 'Shift+Home')
             add('Zoom In', lambda: self.canvas.zoom(1.2), 'Shift+Up')
@@ -443,6 +1019,8 @@ class MainWindow(QMainWindow):
             add('Change Shape...')
             add('Show Text')
             sub('Re-level', ['Add hierarchy', 'Remove hierarchy'])
+            if item.obj.hier:
+                add('Open Down', lambda: self.show_level(item.obj.id))
             props()
         elif isinstance(item, JunctionItem):
             edit_part()
@@ -488,7 +1066,7 @@ class MainWindow(QMainWindow):
             self.scene.changed_model.emit()
 
     def machine_properties(self, page: str = 'generation'):
-        """Diagram > State Machine Properties... (also the diagram popup menu): the HDS dialog,
+        """Diagram > State Machine Properties... (also the diagram popup menu): the legacy dialog,
         opened on `page` (a key of sm_machine_dialog.PAGES)."""
         from .sm_machine_dialog import StateMachinePropertiesDialog
         if self.machine is None:
@@ -515,7 +1093,7 @@ class MainWindow(QMainWindow):
                                      'module': 'declarations'}.get(key, 'generation'))
 
     def edit_text_inline(self, item, field: str):
-        """Edit one text of the diagram in place, in a box over it, as HDS does on a
+        """Edit one text of the diagram in place, in a box over it, as the legacy tool does on a
         double-click: a transition's condition / actions, a state's entry / state / exit actions,
         a link's target, a CASE junction's expression, a clock / enable expression, a text of
         the declaration blocks. Leaving the box (or Ctrl+Enter, Enter for one line) keeps the
@@ -586,7 +1164,7 @@ class MainWindow(QMainWindow):
         ed.installEventFilter(ed._filter)
 
     def rename_state_inline(self, item):
-        """Edit a state name in place, in a box over the name (HDS: a double-click on the name).
+        """Edit a state name in place, in a box over the name (the legacy tool: a double-click on the name).
         Enter or leaving the box renames the state, links to it follow; Esc keeps the old name.
         An empty name or the name of another state is refused."""
         from PySide6.QtWidgets import QLineEdit
@@ -628,7 +1206,7 @@ class MainWindow(QMainWindow):
 
     def edit_condition_inline(self, t):
         """Type the condition of a new transition in place, in a box at the middle of the
-        transition, as HDS 2021.1 opens one when a transition is drawn. Enter or leaving the
+        transition, as the legacy tool opens one when a transition is drawn. Enter or leaving the
         box keeps the text; Esc leaves the condition empty."""
         from PySide6.QtWidgets import QLineEdit
         it = self.scene.trans_items.get(t.id)
@@ -638,7 +1216,7 @@ class MainWindow(QMainWindow):
         mid = it.mapToScene(path.pointAtPercent(0.5)) if path.length() > 0 else it.scenePos()
         vp = self.canvas.viewport()
         ed = QLineEdit(vp)
-        ed.setPlaceholderText('value')                  # the hint HDS shows in its box
+        ed.setPlaceholderText('value')                  # the hint the legacy tool shows in its box
         ed.setText(t.cond)
         ed.setMinimumWidth(120)
         ed.adjustSize()
@@ -712,6 +1290,7 @@ class MainWindow(QMainWindow):
         """
         self.view, self.path = view, path
         self.machine = view.machines[0] if view.machines else None
+        self.scene.level = ''
         self.scene.load(view, self.machine)
         apply_select_filter(self.scene, getattr(self, 'select_filter', 'any'), self._is_text)
         self.signals_tab.set_rows(view.signals)
@@ -734,7 +1313,7 @@ class MainWindow(QMainWindow):
 
     def _restore_view_position(self):
         """Open where the user left the diagram: HDL Studio's own saved view first, then the view
-        area HDS saved for the machine (at HDS's 100%, which is a zoom of 75/72 here, from its
+        area the legacy tool saved for the machine (at the legacy tool's 100%, which is a zoom of 75/72 here, from its
         top-left corner), else the whole diagram."""
         if self.canvas.restore(load_view_state(self._view_key())):
             return
@@ -813,7 +1392,7 @@ class MainWindow(QMainWindow):
             for s in m.states:
                 QTreeWidgetItem(it, [s.name]).setData(0, Qt.UserRole, ('state', s.id))
         self.build_content()
-        for k in range(self.nav.topLevelItemCount()):        # HDS shows the top entries in bold
+        for k in range(self.nav.topLevelItemCount()):        # The legacy tool shows the top entries in bold
             it = self.nav.topLevelItem(k)
             f = it.font(0); f.setBold(True); it.setFont(0, f)
         self.nav.expandToDepth(1)
@@ -833,6 +1412,9 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.canvas)
         elif isinstance(key, tuple):
             self.tabs.setCurrentWidget(self.canvas)
+            st = next((s for s in self.machine.states if s.id == key[1]), None)
+            if st is not None and st.parent != self.scene.level:
+                self.show_level(st.parent)          # a state inside a hierarchical state: go there
             it = self.scene.item_for(key[1])
             if it:
                 self.scene.clearSelection(); it.setSelected(True)
@@ -841,15 +1423,15 @@ class MainWindow(QMainWindow):
     # -- change handling ------------------------------------------------------------
     def build_content(self):
         """The Content pane: one group per kind of object of the machine, "(Items: n)", with
-        the objects under it (name, machine), as HDS lists them. Only kinds present are shown."""
+        the objects under it (name, machine), as the legacy tool lists them. Only kinds present are shown."""
         if not hasattr(self, 'content'):
             return
         self.content.clear()
         m = self.machine
         if m is None:
             return
-        # the kinds HDS 2021.1 lists there (junctions, links, recovery and interrupt points are
-        # not listed; HDS also lists comment texts, which HDL Studio's state diagrams do not have)
+        # the kinds the legacy tool lists there (junctions, links, recovery and interrupt points are
+        # not listed; the legacy tool also lists comment texts, which HDL Studio's state diagrams do not have)
         groups = [('state', [(s.name, s.id) for s in m.states])]
         for kind in ('clock', 'reset', 'enable'):
             groups.append((kind, [(p.kind, p.id) for p in m.points if p.kind == kind]))
@@ -925,19 +1507,21 @@ class MainWindow(QMainWindow):
             self.log.addItem('Generation OK - no warnings')
 
     def update_title(self):
-        """Window title as HDS writes it (project, library/unit/view, machine, '*', read-only)."""
+        """Window title as the legacy tool writes it (project, library/unit/view, machine, '*', read-only)."""
         v = self.view
         star = ' *' if self.dirty else ''
         if self.context is not None:
-            # HDS: "Project p: lib/unit/view [machine] (Read-only) (State Diagram)"; the '*' is
+            # The legacy tool: "Project p: lib/unit/view [machine] (Read-only) (State Diagram)"; the '*' is
             # put after the names as in the block diagram title
             ro = ' (Read-only)' if self.context.readonly else ''
+            lv = self.level_path() if hasattr(self, 'scene') else ''
             self.setWindowTitle(f'Project {self.context.project_name}: {v.library}/{v.unit}/{v.view} '
-                                f'[{self.machine.name}]{star}{ro} (State Diagram)')
+                                f'[{self.machine.name}{"/" + lv if lv else ""}]{star}{ro} (State Diagram)')
             return
         name = os.path.basename(self.path) if self.path else 'untitled'
+        lv = self.level_path() if hasattr(self, 'scene') else ''
         self.setWindowTitle(f'{APP_NAME} — {v.library}/{v.unit}/{v.view} '
-                            f'[{self.machine.name}] (State Diagram) — {name}{star}')
+                            f'[{self.machine.name}{"/" + lv if lv else ""}] (State Diagram) — {name}{star}')
 
     def generate_hdl(self):
         """Tasks > Generate: generate this view through the project (in a project only)."""
@@ -973,23 +1557,23 @@ class MainWindow(QMainWindow):
             self.load_view(FsmView.load(path), path)
 
     def import_file(self):
-        """File > Import (standalone): open an HDS .sm file."""
+        """File > Import (standalone): open a legacy .sm file."""
         if not self._confirm_discard():
             return
-        path, _ = QFileDialog.getOpenFileName(self, 'Import HDS state machine', self._dir(),
-                                              'HDS state machine (*.sm)')
+        path, _ = QFileDialog.getOpenFileName(self, 'Import state machine', self._dir(),
+                                              'State machine (*.sm)')
         if path:
             self._remember(path)
             self.open_path(path)
 
     def open_path(self, path: str):
-        """Open a .sm (HDS) or .fsm.json file. A .sm outside a <library>/hds/<unit>/ folder asks for the
+        """Open a .sm (legacy) or .fsm.json file. A .sm outside a <library>/hds/<unit>/ folder asks for the
         library and unit names.
         """
         if path.endswith('.sm'):
             parts = os.path.normpath(os.path.abspath(path)).split(os.sep)
             unit = lib = None
-            if not (len(parts) > 3 and parts[-3] == 'hds'):
+            if not (len(parts) > 3 and parts[-3] == META_DIR):
                 # loose file, not in <library>/hds/<unit>/: ask for the names
                 text, ok = QInputDialog.getText(self, 'Import', 'Library.unit for this state machine:',
                                                 text='work.' + os.path.splitext(parts[-1])[0])
@@ -998,7 +1582,7 @@ class MainWindow(QMainWindow):
                 lib, _, unit = text.strip().rpartition('.')
                 lib = lib or 'work'
             view = import_sm(path, library=lib, unit=unit)
-            self.load_view(view, path)          # saved back to the same .sm (HDS reads it too)
+            self.load_view(view, path)          # saved back to the same .sm (the legacy tool reads it too)
             self.statusBar().showMessage(f'Opened {path}', 5000)
         else:
             self.load_view(FsmView.load(path), path)
@@ -1008,7 +1592,7 @@ class MainWindow(QMainWindow):
         came from (.sm written back with export_sm, else JSON). Clears the dirty flag.
         """
         if self.context is not None:
-            if self.context.save(self.view, self, geometry=self.scene.hds_geometry):
+            if self.context.save(self.view, self, geometry=self.scene.sm_geometry):
                 if self.context.view.legacy and self.context.view.path.endswith('.sm'):
                     self._reload_scene()
                 self.dirty = False
@@ -1018,12 +1602,12 @@ class MainWindow(QMainWindow):
         if not self.path:
             return self.save_as()
         if self.path.endswith('.sm'):
-            # an HDS state diagram opened as a file: written back to it (HDS reads it too)
-            from hds.export_sm import export_sm
-            warn = export_sm(self.view, self.path, self.path, self.scene.hds_geometry)
+            # a legacy state diagram opened as a file: written back to it (the legacy tool reads it too)
+            from formats.export_sm import export_sm
+            warn = export_sm(self.view, self.path, self.path, self.scene.sm_geometry)
             if warn:
                 QMessageBox.warning(self, 'Saved with omissions',
-                                    'Saved to the HDS file, but these changes could not be written yet:\n\n'
+                                    'Saved to the .sm file, but these changes could not be written yet:\n\n'
                                     + '\n'.join(warn[:15]))
             self._reload_scene()
         else:
@@ -1034,8 +1618,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f'Saved {self.path}', 4000)
 
     def _reload_scene(self):
-        """After saving to an HDS .sm: the objects added in HDL Studio now have the ids of their
-        labels in the file (hds.export_sm), so the scene is built again on them; the view
+        """After saving to a legacy .sm: the objects added in HDL Studio now have the ids of their
+        labels in the file (formats.export_sm), so the scene is built again on them; the view
         stays where it is."""
         gv = self.scene.views()[0] if self.scene.views() else None
         center = gv.mapToScene(gv.viewport().rect().center()) if gv is not None else None

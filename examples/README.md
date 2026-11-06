@@ -1,15 +1,11 @@
 # examples
 
-Example projects, in the HDS project layout (`<project>.hdp` next to its libraries). Open one
-with File > Open Project, or `python bin/hdlstudio.py examples/uart_hds/uart.hdp`.
+Example projects (`<project>.hdp` next to its libraries). Open one with File > Open Project,
+or `python bin/hdlstudio.py examples/uart_studio/uart.hdp`.
 
 | Project | What it is |
 |---|---|
-| `uart_hds/` | a UART made with HDS 2021.1: two state diagrams (`uart_tx`, `uart_rx`, `.sm`), a hand-written `baud_gen.v`, a block diagram `uart_top` (`.bd`) and a testbench (`tb/`). See its README. |
-| `uart_studio/` | the same UART built again with HDL Studio by `tests/hds_gui/build_uart_studio.py` (views saved as `.fsm.json` / `.bd.json`). Running that script rebuilds this folder. |
+| `uart_studio/` | a UART built with HDL Studio: two state diagrams (`uart_tx`, `uart_rx`, saved as `.fsm.json`), a hand-written `baud_gen.v` and a block diagram `uart_top` (`.bd.json`), with the HDL generated from them. |
 
-Both `.hdp` files name a shared project `$HDS_TEAM_HOME/shared.hdp`; when the variable is not
+The `.hdp` file names a shared project through a team path variable; when the variable is not
 set the Design Manager only reports it in the Log.
-
-The tests use `uart_hds` as a read-only sample (`tests/gui/gui_fsm_transitions.py`, the round
-trip and HDS sync tests); they work on copies and never write into it.

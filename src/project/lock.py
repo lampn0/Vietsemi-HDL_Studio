@@ -24,7 +24,7 @@ class LockInfo:
 
 
 def lock_path(view_file: str) -> str:
-    """The lock file of a view file: <file>.lck (HDS's name)."""
+    """The lock file of a view file: <file>.lck (the legacy tool's name)."""
     return view_file + '.lck'
 
 
@@ -38,14 +38,14 @@ def _group() -> str:
 
 
 def me() -> LockInfo:
-    """A LockInfo describing this process now (time in HDS's format mm/dd/yy-HH:MM:SS.micro)."""
+    """A LockInfo describing this process now (time in the legacy tool's format mm/dd/yy-HH:MM:SS.micro)."""
     now = datetime.now()
     return LockInfo(getpass.getuser(), _group(), socket.gethostname(), os.getpid(),
                     now.strftime('%m/%d/%y-%H:%M:%S.') + f'{now.microsecond:06d}')
 
 
 def read_lock(view_file: str) -> LockInfo | None:
-    """Read the lock of `view_file`; None when there is no lock file or it is not an HDS EDIT_LOCK."""
+    """Read the lock of `view_file`; None when there is no lock file or it is not a legacy EDIT_LOCK."""
     p = lock_path(view_file)
     if not os.path.exists(p):
         return None

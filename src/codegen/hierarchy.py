@@ -1,7 +1,7 @@
 """Hierarchical states for code generation.
 
-A hierarchical state (HDS CompositeState) only groups states: it is not a state of the
-machine. HDS follows the paths through it:
+A hierarchical state (legacy CompositeState) only groups states: it is not a state of the
+machine. The legacy tool follows the paths through it:
   - a transition into the hierarchical state continues from the entry point inside it,
     so  X --c/a--> H  +  ENTRY --e/b--> Y  becomes  X --(c) & (e) / a b--> Y;
   - a transition into an exit point continues along the transitions leaving its

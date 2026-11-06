@@ -1,4 +1,4 @@
-"""Add > Component (F3) as in HDS 2021.1: the floating Component Browser opens, and a unit dragged
+"""Add > Component (F3) as in the legacy tool: the floating Component Browser opens, and a unit dragged
 from it with the real mouse onto the diagram is instantiated there (body bottom-left at the drop
 point, named after the unit, selected). Uses the sample project D:/workspace/hds_reference
 (only read). The drag is done by a second thread with pyautogui: QDrag blocks the Qt thread."""
@@ -14,7 +14,7 @@ from bd_model import BlockDiagram  # noqa: E402
 from gui import bd_editor  # noqa: E402
 from project.project import open_project  # noqa: E402
 
-SAMPLE = os.environ.get('DHDS_SAMPLE_HDP', 'D:/workspace/hds_reference/dynamo_dsol.hdp')
+SAMPLE = os.environ.get('HDLSTUDIO_SAMPLE_HDP', 'D:/workspace/hds_reference/dynamo_dsol.hdp')
 app = QApplication(sys.argv)
 fails = 0
 

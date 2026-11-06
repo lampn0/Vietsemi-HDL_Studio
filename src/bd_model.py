@@ -1,11 +1,11 @@
-"""Data model of a block diagram view (HDS "struct" view): component instances, embedded
+"""Data model of a block diagram view (the legacy tool "struct" view): component instances, embedded
 blocks, port I/Os, wires (net segments), generate frames, comments and junction dots.
 
-All coordinates are scene units (the HDS file units divided by the import scale, see
-hds.import_bd). A net is not an object of its own: it is the set of wires with the same
+All coordinates are scene units (the legacy file units divided by the import scale, see
+formats.import_bd). A net is not an object of its own: it is the set of wires with the same
 `net` name plus the Signal of that name in BlockDiagram.signals (its type and bounds).
 
-Saved as JSON (`struct.bd.json`) with to_json / load, or imported from an HDS .bd file.
+Saved as JSON (`struct.bd.json`) with to_json / load, or imported from a legacy .bd file.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import json
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
-from model import Parameter, Signal
+from model import Panel, Parameter, Signal
 
 
 NAME_LINE_H = 12.0      # spacing of the library / component / instance name lines of an instance
@@ -80,7 +80,7 @@ class BdInstance:
 
 @dataclass
 class BdEmbedded:
-    """An embedded block: HDL text written straight into the diagram (HDS "Embedded Block"); the
+    """An embedded block: HDL text written straight into the diagram (the legacy tool "Embedded Block"); the
     generator copies `text` into the module body.
     """
     id: str
@@ -93,7 +93,7 @@ class BdEmbedded:
     h: float = 120.0
     # The block's Text view: a white box [x, y, w, h] relative to the block's top-left. A
     # legacy block has it inside the yellow frame; a new block gets it when the user picks
-    # "Text" in Create Embedded View, at the block's bottom-right corner as in HDS. None: no
+    # "Text" in Create Embedded View, at the block's bottom-right corner as in the legacy tool. None: no
     # view yet (an empty yellow block, generating nothing).
     text_box: list[float] | None = None
     show_name: bool = True      # "eb1" label above the block
@@ -228,6 +228,7 @@ class BlockDiagram:
     wires: list[BdWire] = field(default_factory=list)
     frames: list[BdFrame] = field(default_factory=list)
     comments: list[BdComment] = field(default_factory=list)
+    panels: list[Panel] = field(default_factory=list)
     junctions: list[BdJunction] = field(default_factory=list)
     # Change Style: net name -> 'bus' | 'signal' when drawn other than its bounds suggest
     net_styles: dict[str, str] = field(default_factory=dict)
@@ -237,8 +238,8 @@ class BlockDiagram:
     # user text of the diagram's Declarations block ("Pre User:" / "Post User:")
     pre_user_declarations: str = ''
     post_user_declarations: str = ''
-    # visible area when the diagram was last saved by HDS (scene units: x0, y0, x1, y1); the
-    # editor opens there, as HDS does, when it has no view of its own for the diagram
+    # visible area when the diagram was last saved by the legacy tool (scene units: x0, y0, x1, y1); the
+    # editor opens there, as the legacy tool does, when it has no view of its own for the diagram
     view_area: list[float] | None = None
     header: str = ''
 
@@ -253,8 +254,8 @@ class BlockDiagram:
         return path[-1] if path else None
 
     def to_json(self) -> str:
-        """The whole diagram as JSON text (format tag 'dolphin-hds-bd', version 1)."""
-        return json.dumps({'format': 'dolphin-hds-bd', 'version': 1, 'view': asdict(self)}, indent=2)
+        """The whole diagram as JSON text (format tag 'hdlstudio-bd', version 1)."""
+        return json.dumps({'format': 'hdlstudio-bd', 'version': 1, 'view': asdict(self)}, indent=2)
 
     @classmethod
     def from_json(cls, text: str) -> 'BlockDiagram':
@@ -275,7 +276,7 @@ class BlockDiagram:
 
 _LISTS = {'signals': Signal, 'parameters': Parameter, 'instances': BdInstance, 'embedded': BdEmbedded,
           'port_ios': BdPortIo, 'wires': BdWire, 'params': Parameter, 'pins': BdPin, 'frames': BdFrame,
-          'comments': BdComment, 'junctions': BdJunction}
+          'comments': BdComment, 'junctions': BdJunction, 'panels': Panel}
 
 
 def _build(cls, data: dict) -> Any:

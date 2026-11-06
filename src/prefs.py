@@ -1,4 +1,4 @@
-"""User preferences, stored as JSON in ~/.config/vietsemi-hdl-studio/prefs.json."""
+"""User preferences, stored as JSON in ~/hdl_studio/user/<release>/user_prefs.json (see homes.py)."""
 from __future__ import annotations
 
 import getpass
@@ -63,21 +63,11 @@ class Prefs:
 
     @staticmethod
     def path() -> str:
-        """Location of the preference file: $XDG_CONFIG_HOME/vietsemi-hdl-studio/prefs.json
-        (~/.config/vietsemi-hdl-studio/prefs.json when the variable is not set; tests set it).
-        A configuration folder left by the prototype (dolphin-hds) is renamed to the new one the
-        first time, so preferences, session and autosaved work carry over.
+        """Location of the preference file: user_prefs.json in the per-user release folder
+        (~/hdl_studio/user/v2026.12/ by default, $HDLSTUDIO_HOME / $HDLSTUDIO_USER_HOME move it; tests set them).
         """
-        from version import APP_ID, LEGACY_APP_ID
-        base = os.environ.get('XDG_CONFIG_HOME') or os.path.join(os.path.expanduser('~'), '.config')
-        folder = os.path.join(base, APP_ID)
-        legacy = os.path.join(base, LEGACY_APP_ID)
-        if not os.path.exists(folder) and os.path.isdir(legacy):
-            try:
-                os.rename(legacy, folder)
-            except OSError:
-                pass                     # cannot move it (in use, read-only): start fresh
-        return os.path.join(folder, 'prefs.json')
+        import homes
+        return os.path.join(homes.user_dir(), homes.USER_PREFS)
 
     @classmethod
     def load(cls) -> 'Prefs':
@@ -111,7 +101,7 @@ class Prefs:
 
 def expand_header(template: str, library: str, unit: str, view: str, project_name: str) -> str:
     """Fill the %(name) placeholders of a header template (library, unit, view, project_name,
-    user, date, time, year and the graphical_source_* variants HDS offers) and return the text.
+    user, date, time, year and the graphical_source_* variants the legacy tool offers) and return the text.
     """
     now = datetime.now()
     values = {

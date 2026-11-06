@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, QPoint
 from PySide6.QtWidgets import QApplication, QLineEdit
 from PySide6.QtTest import QTest
 app = QApplication(sys.argv)
-from hds.import_bd import import_bd
+from formats.import_bd import import_bd
 from gui.bd_editor import BdEditorWindow, InstanceItem
 bd = import_bd(_env.legacy_bd('hds/dynamo_core/struct.bd'))
 inst = next(i for i in bd.instances if i.unit == 'dataflow_controller')

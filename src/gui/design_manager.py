@@ -1,4 +1,4 @@
-"""The Design Manager: the main window of HDL Studio (the HDS Design Manager).
+"""The Design Manager: the main window of HDL Studio (the legacy tool Design Manager).
 
     DesignManager    the window: menus and toolbars, the left launcher bar, the Project page
                      (libraries of the .hdp), one LibraryExplorer tab per library opened, the
@@ -27,25 +27,31 @@ from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDockWidget, QFileDialog, QHBoxLayout, QHeaderView,
                                QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-                               QPushButton, QSplitter, QStackedWidget, QStyle, QTabBar, QTabWidget, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                               QPushButton, QSizePolicy, QSplitter, QStackedWidget, QStyle, QTabBar, QTabWidget, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
 from hdl.parser import HAVE_SLANG
 from bd_model import BlockDiagram
 from model import FsmView
-from version import APP_NAME, __version__, about_text
+from formats.names import META_DIR, PROJECT_DIR_VAR
+from version import APP_NAME
 from prefs import Prefs, expand_header
 from session import EditorState, Session, drop_autosave, read_autosave, write_autosave
 from project.generate import GenResult, load_view, native_path
 from project.project import DesignUnit, Library, Project, View, create_project, open_project
 from project.templates import new_fsm, new_module
 from .bd_editor import BdEditorWindow
+from .branding import install_app_icon, show_about
+from .status import StatusProgress
+from .dm_toolbar import DmToolbars
 from .dm_icons import ROOT_TEXT, dm_icon, library_icon, project_icon, tree_icon, unit_icon, view_icon
 from .context import EditorContext, generate_with_prompt
 from .menus import DM_MENUS, arrange_menus
 from .dialogs import NewLibraryDialog, NewProjectDialog, NewUnitDialog, PreferencesDialog
 from .main_window import MainWindow as FsmEditorWindow
 from .text_editor import TextEditorWindow
+from . import explorer_menus as M
+from . import text_selection
 
 RED = QBrush(QColor(200, 0, 0))
 GREY = QBrush(QColor(130, 130, 130))
@@ -92,6 +98,43 @@ def _size(path: str) -> str:
         return ''
 
 
+class WrapToolButton(QToolButton):
+    """A tool button (icon beside text) whose text breaks onto more lines, at spaces, when the
+    button is too narrow for it on one line, and joins again when it is widened. Used on the
+    Project page of the left bar, which the user can make wider or narrower.
+    """
+    PAD = 22                    # margins, icon-to-text spacing and style padding, in pixels
+
+    def __init__(self, text: str):
+        """Button showing `text` (wrapped to the width it gets)."""
+        super().__init__()
+        self._full = text
+        self.setText(text)
+
+    def _wrapped(self, width: int) -> str:
+        """`_full` broken into lines no wider than the room left beside the icon (a single word
+        longer than that stays on its own line).
+        """
+        room = width - self.iconSize().width() - self.PAD
+        fm = self.fontMetrics()
+        if room <= 0 or fm.horizontalAdvance(self._full) <= room:
+            return self._full
+        lines: list[str] = []
+        for word in self._full.split():
+            if lines and fm.horizontalAdvance(lines[-1] + ' ' + word) <= room:
+                lines[-1] += ' ' + word
+            else:
+                lines.append(word)
+        return '\n'.join(lines)
+
+    def resizeEvent(self, event):
+        """Re-wrap the text for the new width (the height follows through the layout)."""
+        text = self._wrapped(event.size().width())
+        if text != self.text():
+            self.setText(text)
+        super().resizeEvent(event)
+
+
 class LibraryExplorer(QWidget):
     """Design Units / Files / Design Hierarchy panes for one library."""
 
@@ -120,6 +163,8 @@ class LibraryExplorer(QWidget):
         self.hier.itemExpanded.connect(self._expand_hier)
         for t in (self.units, self.files, self.hier):
             t.customContextMenuRequested.connect(lambda pos, t=t: self._menu(t, pos))
+            M.install_hit_test(t)
+            text_selection.apply(t)
         left = QSplitter(Qt.Vertical)
         left.addWidget(self.units)
         left.addWidget(self.files)
@@ -140,7 +185,7 @@ class LibraryExplorer(QWidget):
         lib = self.lib
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            lib.scan(self.dm.project.cache)
+            lib.scan(self.dm.project.cache, self.dm.project.progress)
         finally:
             QApplication.restoreOverrideCursor()
         msgs = list(lib.errors)
@@ -199,10 +244,14 @@ class LibraryExplorer(QWidget):
         lib = self.lib
         hdl = QTreeWidgetItem(['Design Files', '', '', ''])
         hdl.setIcon(0, dm_icon('design_files'))
+        hdl.setData(0, Qt.UserRole, ('libfolder',))
+        generated = self._generated_files()
         for path in lib.hdl_files():
             parsed = lib.files.get(path)
-            it = QTreeWidgetItem([os.path.basename(path), 'Source File', _size(path), _ts(os.path.getmtime(path))])
-            it.setData(0, Qt.UserRole, ('file', path))
+            kind = 'generated' if os.path.normcase(os.path.abspath(path)) in generated else 'source'
+            it = QTreeWidgetItem([lib.relative_name(path), 'Generated File' if kind == 'generated' else 'Source File',
+                                  _size(path), _ts(os.path.getmtime(path))])
+            it.setData(0, Qt.UserRole, ('file', path, kind))
             it.setToolTip(0, path)
             it.setIcon(0, dm_icon('file_error' if parsed and parsed.errors else 'file_hdl'))
             if parsed and parsed.errors:
@@ -212,11 +261,11 @@ class LibraryExplorer(QWidget):
             hdl.addChild(it)
         self.files.addTopLevelItem(hdl)
         hdl.setExpanded(True)
-        if lib.hds_dir and os.path.isdir(lib.hds_dir):
-            gfx = QTreeWidgetItem(['Graphics (hds)', '', '', ''])
+        if lib.meta_dir and os.path.isdir(lib.meta_dir):
+            gfx = QTreeWidgetItem([f'Graphics ({META_DIR})', '', '', ''])
             gfx.setIcon(0, dm_icon('folder'))
-            for unit in sorted(os.listdir(lib.hds_dir)):
-                d = os.path.join(lib.hds_dir, unit)
+            for unit in sorted(os.listdir(lib.meta_dir)):
+                d = os.path.join(lib.meta_dir, unit)
                 if unit.startswith('.') or not os.path.isdir(d):
                     continue
                 ui = QTreeWidgetItem([unit, 'Folder', '', ''])
@@ -226,7 +275,7 @@ class LibraryExplorer(QWidget):
                     if os.path.isfile(p) and not f.startswith('.'):
                         fi = QTreeWidgetItem([f, 'Lock' if f.endswith('.lck') else 'View file', _size(p),
                                               _ts(os.path.getmtime(p))])
-                        fi.setData(0, Qt.UserRole, ('file', p))
+                        fi.setData(0, Qt.UserRole, ('file', p, 'other'))
                         fi.setIcon(0, dm_icon('file_lock' if f.endswith('.lck') else 'file_view'))
                         ui.addChild(fi)
                 gfx.addChild(ui)
@@ -384,6 +433,7 @@ class LibraryExplorer(QWidget):
                     frame_name = g.split(':', 1)[-1].strip()
                     groups[key] = QTreeWidgetItem([g, du.name, '', frame_name, du.library.name])
                     groups[key].setIcon(0, dm_icon('frame'))
+                    groups[key].setData(0, Qt.UserRole, ('frame', du))
                     parent.addChild(groups[key])
                 parent = groups[key]
             lib = self.dm.project.library(libname) if libname else None
@@ -408,7 +458,7 @@ class LibraryExplorer(QWidget):
         d = item.data(0, Qt.UserRole)
         if not d:
             return
-        if d[0] == 'root':
+        if d[0] in ('root', 'frame'):
             self.dm.open_unit(d[1])
         elif d[0] == 'unit' and d[1] is not None:
             if item.treeWidget() is self.units:
@@ -419,97 +469,52 @@ class LibraryExplorer(QWidget):
             self.dm.open_file(d[1], self.lib)
 
     def _menu(self, tree: QTreeWidget, pos):
-        """Right-click menu of a pane row: hierarchy root, unit / view (see _unit_menu) or file."""
-        item = tree.itemAt(pos)
+        """Right-click in a pane: the menu of the row under the mouse (gui/explorer_menus.py), or
+        of the pane's empty space (a row counts only on its icon / text, as in the legacy tool)."""
+        item = M.text_item(tree, pos)
+        d = item.data(0, Qt.UserRole) if item is not None else None
         if item is None:
+            entries = M.hier_blank_menu(self) if tree is self.hier else M.explorer_blank_menu(self)
+        elif not d:
             return
-        d = item.data(0, Qt.UserRole)
-        if not d:
-            return
-        m = QMenu(self)
-        if d[0] == 'root':
-            m.addAction('Expand All', lambda: self.expand_all(item))
-            m.addAction('Collapse All', lambda: self.collapse_all(item))
-            m.addSeparator()
-            hide = m.addAction('Hide Hierarchy', lambda: self.hide_hierarchy(item))
-            if d[2]:
-                hide.setEnabled(False)
-                hide.setToolTip('The top of the library is always shown')
-        elif d[0] in ('unit', 'view') and d[1] is not None:
-            self._unit_menu(m, d[1], d[2] if d[0] == 'view' else None)
+        elif d[0] == 'root':
+            entries = M.hier_root_menu(self, item, d[2])
+        elif d[0] == 'frame':
+            entries = M.hier_frame_menu(self, d[1])
+        elif d[0] == 'libfolder':
+            entries = M.lib_folder_menu(self, item)
+        elif d[0] == 'view':
+            entries = M.view_menu(self, d[1], d[2])
+        elif d[0] == 'unit' and d[1] is not None:
+            parent = item.parent()
+            pd = parent.data(0, Qt.UserRole) if parent is not None else None
+            shown = parent if pd and pd[0] == 'root' else None
+            entries = M.unit_menu(self, d[1], in_hierarchy=tree is self.hier, shown_root=shown)
         elif d[0] == 'file':
-            m.addAction('Open', lambda: self.dm.open_file(d[1], self.lib))
-            m.addAction('Copy path', lambda: QApplication.clipboard().setText(d[1]))
-        m.exec(tree.viewport().mapToGlobal(pos))
+            entries = M.file_menu(self, d[1], d[2] if len(d) > 2 else 'other')
+        else:
+            return
+        M.popup(entries, self, tree.viewport().mapToGlobal(pos))
 
+    def units_in_file(self, path: str) -> list[DesignUnit]:
+        """Design units of the library described in HDL file `path`."""
+        key = os.path.normcase(os.path.abspath(path))
+        return [du for du in self.lib.units.values()
+                if du.hdl is not None and os.path.normcase(os.path.abspath(du.hdl.file)) == key]
 
-    def _unit_menu(self, m: QMenu, du: DesignUnit, view: View | None):
-        """Popup menu of a design unit or one of its views, in the legacy Design Explorer order.
-        Entries for flows outside HDL Studio are shown greyed."""
-        target = view or du.default_view()
+    def _generated_files(self) -> set[str]:
+        """HDL files generated from a graphical view (normalised paths)."""
+        return {os.path.normcase(os.path.abspath(du.hdl.file)) for du in self.lib.units.values()
+                if du.hdl is not None and du.graphic_view() is not None}
 
-        def item(menu, text, slot=None, key=''):
-            """Add an entry (disabled without a slot) with its shortcut shown."""
-            a = menu.addAction(text)
-            if slot is not None:
-                a.triggered.connect(slot)
-            else:
-                a.setEnabled(False)
-            if key:
-                a.setShortcut(QKeySequence(key))
-                a.setShortcutVisibleInContextMenu(True)
-            return a
-
-        def sub(menu, text, entries=()):
-            """Add a sub-menu with the given entries (disabled when it has none)."""
-            s = menu.addMenu(text)
-            for e in entries:
-                item(s, *e)
-            s.setEnabled(bool(entries))
-            return s
-
-        item(m, 'Open', (lambda: self.dm.open_view(du, target)) if target else None, 'Ctrl+O')
-        sub(m, 'Add to SVAssistant Project')
-        m.addSeparator()
-        item(m, 'Show Hierarchy', lambda: self.show_hierarchy(du), 'Shift+Space')
-        item(m, 'Cross-Highlight')
-        sub(m, 'Reports')
-        m.addSeparator()
-        item(m, 'Design Unit Cut')
-        item(m, 'Design Unit Copy')
-        m.addSeparator()
-        path = target.path if target else ''
-        sub(m, 'Copy Path to Clipboard', [
-            ('Full Path', lambda: QApplication.clipboard().setText(path)),
-            ('Library.Design Unit', lambda: QApplication.clipboard().setText(f'{du.library.name}.{du.name}')),
-            ('Design Unit Folder', lambda: QApplication.clipboard().setText(os.path.dirname(path)))])
-        m.addSeparator()
-        item(m, 'Remove From Project')
-        item(m, 'Delete Design Unit From Disk...')
-        item(m, 'Delete Special...')
-        item(m, 'Rename', None, 'F2')
-        m.addSeparator()
-        sub(m, 'DesignChecker', [('Check', lambda: self.dm.check_units([du]))])
-        item(m, 'Edit Black-Box Settings...')
-        m.addSeparator()
-        sub(m, 'Convert To Graphics')
-        sub(m, 'Visualize Code As')
-        m.addSeparator()
-        item(m, 'Generate HDL', (lambda: self.dm.generate_units([du])) if du.graphic_view() else None, 'Shift+G')
-        item(m, 'Set Design Root', lambda: self.dm.set_design_root(du))
-        item(m, 'Set Gate Level')
-        dv = m.addMenu('Set Default View')
-        for v in du.views:
-            if v.kind == 'symbol':
-                continue                    # a symbol is not opened as the unit's implementation
-            a = dv.addAction(tree_icon(view_icon(v)), f'{v.name}  ({v.label})')
-            a.setCheckable(True)
-            a.setChecked(du.is_default(v))
-            a.triggered.connect(lambda checked=False, v=v: self.set_default_view(du, v))
-        dv.setEnabled(du.library.writable and bool(du.library.hds_dir) and len(dv.actions()) > 1)
-        m.addSeparator()
-        item(m, "Don't Touch Settings...")
-        item(m, 'Properties...', lambda: self.unit_properties(du))
+    def hide_all_hierarchies(self):
+        """Hide All: remove every hierarchy added with Show Hierarchy (the library top stays)."""
+        for i in range(self.hier.topLevelItemCount() - 1, -1, -1):
+            d = self.hier.topLevelItem(i).data(0, Qt.UserRole)
+            if d and d[0] == 'root' and not d[2]:
+                self.hier.takeTopLevelItem(i)
+        self.extra_roots.clear()
+        self.dm.session_changed()
 
     def set_default_view(self, du: DesignUnit, view: View):
         """Set Default View: remember `view` as the one a double-click on the unit opens."""
@@ -575,8 +580,11 @@ class DesignManager(QMainWindow):
         timers (autosave, session) and the dock windows.
         """
         super().__init__()
+        install_app_icon()                  # Vietsemi mark on every window and dialog
         self.prefs = Prefs.load()
         self.project: Project | None = None
+        # status bar progress while a project opens and its libraries are scanned
+        self.progress = StatusProgress(self.statusBar())
         self.editors: dict[str, QMainWindow] = {}
         self.explorers: dict[str, LibraryExplorer] = {}
         self.view_cache: dict[tuple[str, float], list] = {}
@@ -596,6 +604,8 @@ class DesignManager(QMainWindow):
         self.project_info.setHeaderHidden(True)
         self.project_info.setRootIsDecorated(True)
         self.project_info.setFixedHeight(84)
+        self.project_info.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.project_info.customContextMenuRequested.connect(lambda pos: self._page_menu(self.project_info, pos))
         pl.addWidget(self.project_info)
         self.show_protected = QCheckBox('Show protected libraries')   # state of the Protected group check box
         self.show_protected.setChecked(True)
@@ -606,7 +616,11 @@ class DesignManager(QMainWindow):
         self.libs.itemDoubleClicked.connect(lambda it, c: self.explore(it.data(0, Qt.UserRole)))
         self.libs.itemChanged.connect(self._lib_group_checked)
         self.libs.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.libs.customContextMenuRequested.connect(self._lib_menu)
+        self.libs.customContextMenuRequested.connect(lambda pos: self._page_menu(self.libs, pos))
+        for t in (self.project_info, self.libs):
+            M.install_hit_test(t)
+            text_selection.apply(t)
+        self.lib_sort_desc = False                     # Sort > Descending on a library group
         pl.addWidget(self.libs, 1)
         self.tabs.addTab(self.project_page, 'Project')
         self.tabs.tabBar().setTabButton(0, QTabBar.RightSide, None)
@@ -694,7 +708,7 @@ class DesignManager(QMainWindow):
 
         # File
         fm = mb.addMenu('&File')
-        new = fm.addMenu('&New')
+        new = self.new_menu = fm.addMenu('&New')
         item(new, '&Design Content...', self.new_unit, QKeySequence.New, when='project')
         reg = new.addMenu('&Registered View')
         for name, entries in REGISTERED_VIEWS:
@@ -765,17 +779,14 @@ class DesignManager(QMainWindow):
         item(em, 'Set as Include File')
         item(em, "Don't Touch Settings...")
         em.addSeparator()
-        sub(em, 'Design&Checker', [('&Run analysis', self.check_selected),
-                                   ('&Manage Policies/RuleSets', lambda: self.statusBar().showMessage(
-                                       'HDL Studio checks with its built-in Verilog/SystemVerilog parser; '
-                                       'there are no rule sets to manage', 6000))])
+        item(em, '&Check', self.check_selected)
         item(em, 'Edit Black-Box Settings...')
         item(em, 'Pr&operties...', lambda: self._with_unit(lambda du: self._explorer_call(
             lambda ex: ex.unit_properties(du))), when='unit')
 
         # View
         vm = mb.addMenu('&View')
-        item(vm, '&Refresh', self.refresh, 'F5')
+        item(vm, '&Refresh', self.refresh, 'F5').setIcon(dm_icon('tb_refresh'))
         item(vm, 'Reload &Library', self.reload_all, 'Shift+F5', when='explorer')
         vm.addSeparator()
         item(vm, '&Status Bar', lambda on: self.statusBar().setVisible(on), checkable=True, checked=True)
@@ -785,9 +796,11 @@ class DesignManager(QMainWindow):
         vm.addSeparator()
         cv = vm.addMenu('&Change Explorer View')
         group = QActionGroup(self)
+        self.explorer_view_actions = {}
         for text, mode in (('&Design Units', 'units'), ('&Files', 'files')):
-            group.addAction(item(cv, text, lambda on, m=mode: on and self._explorer_view(m), checkable=True,
-                                 checked=mode == 'units', when='explorer'))
+            self.explorer_view_actions[mode] = item(cv, text, lambda on, m=mode: on and self._explorer_view(m),
+                                                    checkable=True, checked=mode == 'units', when='explorer')
+            group.addAction(self.explorer_view_actions[mode])
         group.addAction(item(cv, '&Logical Objects', checkable=True))
         sw = vm.addMenu('Sub &Windows')
         self.act_hier_window = item(sw, '&Design Hierarchy', self._show_hierarchy_window, checkable=True)
@@ -806,8 +819,8 @@ class DesignManager(QMainWindow):
         tb.addSeparator()
         item(tb, '&Settings...', self.toolbar_settings)
         vm.addSeparator()
-        item(vm, '&Explore Libraries With Design Hierarchy', self._show_hierarchy_panes, checkable=True,
-             checked=True)
+        self.hier_pane_action = item(vm, '&Explore Libraries With Design Hierarchy', self._show_hierarchy_panes,
+                                     checkable=True, checked=True)
         vm.addSeparator()
         item(vm, 'Col&umns')
         item(vm, '&Filters')
@@ -835,12 +848,9 @@ class DesignManager(QMainWindow):
         for text in ('New Tool...', 'New Flow...', 'Supplied Tasks...'):
             item(tm, text)
         tm.addSeparator()
-        for text in ('AutoCheck Flow', 'DesignChecker Flow', 'Questa Lint Flow', 'SVAssistant Flow'):
-            sub(tm, text)
         gen = sub(tm, 'Generate')
         item(gen, '&Single (selected design units)', self.generate_selected, 'Shift+G')
         item(gen, '&Whole Library', self.generate_current_library)
-        sub(tm, 'QuestaSim Flow')
 
         # Tools
         tl = mb.addMenu('T&ools')
@@ -850,9 +860,7 @@ class DesignManager(QMainWindow):
         item(tl, '&Viewpoint Manager')
         item(tl, '&Component Browser')
         item(tl, '&DesignPad', self.open_selected_hdl)
-        item(tl, 'Manage Policies/RuleSets')
         item(tl, 'Registers...')
-        sub(tl, 'Add to SVAssistant Project')
         tl.addSeparator()
         item(tl, 'Mark Top-Level Design Units...')
         item(tl, 'Update Where Used...')
@@ -884,16 +892,13 @@ class DesignManager(QMainWindow):
         item(hp, '&Keyboard Shortcuts', self._show_shortcuts)
         item(hp, 'Regular Expressions')
         hp.addSeparator()
-        item(hp, 'HDS Setup Assistant...')
+        item(hp, 'Setup Assistant...')
         hp.addSeparator()
         sub(hp, 'Support')
-        for text in ('Release Notes', "What's New", 'HDL Designer Series Home Page'):
+        for text in ('Release Notes', "What's New"):
             item(hp, text)
         hp.addSeparator()
-        for text in ('Register Assistant', 'SVAssistant', 'DesignChecker'):
-            sub(hp, text)
-        hp.addSeparator()
-        item(hp, f'&About {APP_NAME}', lambda: QMessageBox.about(self, APP_NAME, about_text()))
+        item(hp, f'&About {APP_NAME}', lambda: show_about(self))
         self._build_left_bar()
         for m in mb.findChildren(QMenu):
             m.aboutToShow.connect(self._update_menu_states)
@@ -903,28 +908,91 @@ class DesignManager(QMainWindow):
         self._update_menu_states()
 
     def _build_toolbars(self) -> list[QToolBar]:
-        """Standard, HDL, Design Manager and Tasks toolbars (own icons)."""
-        st = self.style()
-        bars = []
-        for title, entries in (
-                ('Standard', [(dm_icon('launch_new'), 'New Design Content', self.new_unit),
-                              (st.standardIcon(QStyle.SP_DialogOpenButton), 'Open Project', self.open_project_dialog),
-                              (st.standardIcon(QStyle.SP_BrowserReload), 'Refresh', self.refresh)]),
-                ('HDL', [(dm_icon('view_text'), 'View Generated HDL', self.open_selected_hdl)]),
-                ('Design Manager', [(dm_icon('library'), 'Explore Library',
-                                     lambda: self.explore(self._selected_lib())),
-                                    (dm_icon('hierarchy_root'), 'Design Hierarchy',
-                                     lambda: self.act_hier_window.toggle())]),
-                ('Tasks', [(dm_icon('launch_check'), 'Check', self.check_selected),
-                           (dm_icon('view_bd'), 'Generate', self.generate_selected)])):
-            bar = QToolBar(title, self)
-            bar.setObjectName('tb_' + title.lower().replace(' ', '_'))
-            bar.setIconSize(QSize(16, 16))
-            for icon, text, slot in entries:
-                bar.addAction(icon, text, slot)
-            self.addToolBar(bar)
-            bars.append(bar)
-        return bars
+        """Standard, Design Manager, HDL and Tasks toolbars, as in the legacy tool (gui/dm_toolbar.py)."""
+        gen = QMenu(self)
+        gen.addAction('&Single (selected design units)', self.generate_selected)
+        gen.addAction('&Whole Library', self.generate_current_library)
+        self.toolbars = DmToolbars(self, {'new': self.new_menu, 'generate': gen})
+        return self.toolbars.bars
+
+    # -- toolbar actions: they act on the current selection (selection_kind) ------------------
+    def selection_kind(self) -> str:
+        """What is selected, for the toolbar (dm_toolbar.py): none / lib on the Project page;
+        explorer / unit / file / hier in a library tab (the pane with the focus first)."""
+        ex = self._explorer()
+        if ex is None:
+            it = self.libs.currentItem()
+            ok = it is not None and it.isSelected() and isinstance(it.data(0, Qt.UserRole), Library)
+            return 'lib' if ok else 'none'
+        for t in sorted((ex.units, ex.files, ex.hier), key=lambda t: not t.hasFocus()):
+            for it in t.selectedItems():
+                d = it.data(0, Qt.UserRole)
+                if not d:
+                    continue
+                if t is ex.hier:
+                    return 'hier'
+                if d[0] in ('unit', 'view'):
+                    return 'unit'
+                if d[0] == 'file':
+                    return 'file'
+        return 'explorer'
+
+    def _selected_row(self):
+        """(tree, data) of the first selected row of the library tab shown (pane with focus first)."""
+        ex = self._explorer()
+        if ex is None:
+            return None, None
+        for t in sorted((ex.units, ex.files, ex.hier), key=lambda t: not t.hasFocus()):
+            for it in t.selectedItems():
+                if it.data(0, Qt.UserRole):
+                    return t, it.data(0, Qt.UserRole)
+        return None, None
+
+    def open_selected(self):
+        """Open: the selected unit (default view), view, file or hierarchy row."""
+        _, d = self._selected_row()
+        if not d:
+            return
+        if d[0] == 'view':
+            self.open_view(d[1], d[2])
+        elif d[0] == 'file':
+            self.open_file(d[1], self._explorer().lib)
+        elif d[0] in ('unit', 'root', 'frame') and d[1] is not None:
+            self.open_unit(d[1])
+
+    def selected_properties(self):
+        """Object Properties of the selected design unit."""
+        ex = self._explorer()
+        units = ex.selected_units() if ex else []
+        if units:
+            ex.unit_properties(units[0])
+
+    def toggle_selected_hierarchy(self):
+        """Toggle Hierarchy: show the hierarchy of the selected unit (of the units of the selected
+        file), or hide it when it is shown already."""
+        ex = self._explorer()
+        t, d = self._selected_row()
+        if ex is None or not d:
+            return
+        units = [d[1]] if d[0] in ('unit', 'view') else ex.units_in_file(d[1]) if d[0] == 'file' else []
+        if not units or units[0] is None:
+            return
+        du = units[0]
+        for i in range(ex.hier.topLevelItemCount()):
+            top = ex.hier.topLevelItem(i)
+            r = top.data(0, Qt.UserRole)
+            if r and r[1] is du and not r[2]:
+                ex.hide_hierarchy(top)
+                return
+        ex.show_hierarchy(du)
+
+    def explore_selected(self):
+        """Explore Library: open the tab of the library selected on the Project page."""
+        self.explore(self._selected_lib())
+
+    def toggle_explorer_view(self):
+        """Change Explorer View: switch the library tabs between Design Units and Files."""
+        self._explorer_view('files' if getattr(self, 'explorer_view', 'units') == 'units' else 'units')
 
     def toolbar_settings(self):
         """View > Toolbars > Settings...: choose which toolbars are shown."""
@@ -967,6 +1035,8 @@ class DesignManager(QMainWindow):
         state = self._menu_state()
         for a, when in self._when:
             a.setEnabled(state.get(when, False))
+        if getattr(self, 'toolbars', None) is not None:
+            self.toolbars.update(self.selection_kind())
 
     def _explorer(self) -> 'LibraryExplorer | None':
         """The LibraryExplorer of the tab shown, or None on the Project page."""
@@ -1032,7 +1102,7 @@ class DesignManager(QMainWindow):
             return
         if what == 'soft' and self.project is not None:
             pd = os.path.normcase(os.path.abspath(self.project.dir))
-            paths = ['$HDS_PROJECT_DIR/' + os.path.relpath(p, self.project.dir).replace(os.sep, '/')
+            paths = [f'${PROJECT_DIR_VAR}/' + os.path.relpath(p, self.project.dir).replace(os.sep, '/')
                      if os.path.normcase(os.path.abspath(p)).startswith(pd) else p for p in paths]
         text = '\n'.join(paths)
         QApplication.clipboard().setText(text)
@@ -1058,6 +1128,9 @@ class DesignManager(QMainWindow):
     def _explorer_view(self, mode: str):
         """View > Change Explorer View: Design Units (units and files panes) or Files only."""
         self.explorer_view = mode
+        a = getattr(self, 'explorer_view_actions', {}).get(mode)
+        if a is not None and not a.isChecked():
+            a.setChecked(True)
         for ex in self.explorers.values():
             ex.units.setVisible(mode == 'units')
 
@@ -1139,6 +1212,11 @@ class DesignManager(QMainWindow):
         else:
             self.explore(lib)
 
+    def set_hierarchy_panes(self, on: bool):
+        """Show / hide the Design Hierarchy panes and tick View > Explore Libraries With Design Hierarchy."""
+        self.hier_pane_action.setChecked(on)        # its toggled signal calls _show_hierarchy_panes
+        self._show_hierarchy_panes(on)
+
     def _show_hierarchy_panes(self, on: bool):
         """Show / hide the Design Hierarchy pane of every library tab."""
         self.show_hierarchy_pane = on
@@ -1150,7 +1228,7 @@ class DesignManager(QMainWindow):
         m = self.window_menu
         m.clear()
         log = next((d for d in self.findChildren(QDockWidget) if d.objectName() == 'log'), None)
-        m.addAction('&HDS Log Window', lambda: (log.show(), log.raise_()) if log else None)
+        m.addAction('&Log Window', lambda: (log.show(), log.raise_()) if log else None)
         m.addAction('&Task Log Window').setEnabled(False)
         m.addAction('Layout').setEnabled(False)
         m.addSeparator()
@@ -1159,17 +1237,9 @@ class DesignManager(QMainWindow):
             m.addAction(f'&{k} - {w.windowTitle()}', lambda w=w: (w.show(), w.raise_(), w.activateWindow()))
 
     def _show_shortcuts(self):
-        """Help > Keyboard Shortcuts: the shortcuts of both editors in one table."""
-        from .toolbars import BD_KEYS, FSM_KEYS
-        from .command_names import COMMANDS
-
-        def rows(keys):
-            """Table rows (command, keys) of one shortcut map."""
-            return ''.join(f'<tr><td>{(COMMANDS.get(k, ("", k, ""))[1] or k)}</td><td>{", ".join(v)}</td></tr>'
-                           for k, v in sorted(keys.items()))
-        QMessageBox.information(self, 'Keyboard Shortcuts',
-                                '<b>Block Diagram</b><table>' + rows(BD_KEYS) + '</table><br><b>State Diagram</b>'
-                                '<table>' + rows(FSM_KEYS) + '</table>')
+        """Help > Keyboard Shortcuts: the shortcuts of both editors (gui/shortcuts_dialog.py)."""
+        from .shortcuts_dialog import show_shortcuts
+        show_shortcuts(self)
 
     def main_settings(self):
         """Options > Main...; applies the recovery-file settings when something was saved."""
@@ -1193,11 +1263,16 @@ class DesignManager(QMainWindow):
         Project tab is current, the Main page of large launcher buttons with a library tab."""
         stack = QStackedWidget()
 
-        def page(buttons) -> QWidget:
-            """A page of the left bar (a column of launcher buttons)."""
+        def page(buttons, stretch: bool = False) -> QWidget:
+            """A page of the left bar (a column of launcher buttons): centred, or as wide as the
+            bar when `stretch`.
+            """
             w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(4, 4, 4, 4); lay.setSpacing(6)
             for b in buttons:
-                lay.addWidget(b, 0, Qt.AlignHCenter)
+                if stretch:
+                    lay.addWidget(b)
+                else:
+                    lay.addWidget(b, 0, Qt.AlignHCenter)
             lay.addStretch(1)
             return w
 
@@ -1233,14 +1308,14 @@ class DesignManager(QMainWindow):
             launcher('launch_synthesize', 'Synthesize'),
             launcher('launch_document', 'Document &&\nVisualize'),
             launcher('launch_registers', 'Registers'),
-            launcher('launch_svassistant', 'SVAssistant'),
         ])
 
         def project_button(icon_name: str, text: str, slot=None):
             """A button of the project page of the left bar."""
-            b = QToolButton(); b.setText(text); b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            b = WrapToolButton(text); b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             b.setIcon(project_icon(icon_name)); b.setIconSize(QSize(24, 24))
-            b.setAutoRaise(True); b.setFixedWidth(120)
+            b.setAutoRaise(True); b.setMinimumWidth(120)
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)     # follows the bar width
             if slot is None:
                 b.setEnabled(False); b.setToolTip('Not available in HDL Studio yet')
             else:
@@ -1248,15 +1323,15 @@ class DesignManager(QMainWindow):
             return b
         project = page([
             project_button('new_project', 'New Project...', self.new_project),
-            project_button('open_project', 'Open\nProject...', self.open_project_dialog),
+            project_button('open_project', 'Open Project...', self.open_project_dialog),
             project_button('new_library', 'New Library...', self.new_library),
-            project_button('edit_mappings', 'Edit\nMappings...'),
-            project_button('set_default', 'Set As\nDefault', self._set_default_library),
-            project_button('explore_library', 'Explore\nLibrary', lambda: self.explore(self._selected_lib())),
+            project_button('edit_mappings', 'Edit Mappings...'),
+            project_button('set_default', 'Set As Default', self._set_default_library),
+            project_button('explore_library', 'Explore Library', lambda: self.explore(self._selected_lib())),
             project_button('new_add', 'New / Add...', self.new_unit),
-            project_button('version', 'Version\nManagement...'),
+            project_button('version', 'Version Management...'),
             project_button('close_project', 'Close Project', self.close_project),
-        ])
+        ], stretch=True)
         project.setObjectName('project_page_bar')
         project.setStyleSheet('#project_page_bar { background:#707070; } '
                               'QToolButton { color:white; text-align:left; } '
@@ -1279,8 +1354,9 @@ class DesignManager(QMainWindow):
         dock.setTitleBarWidget(QWidget())         # no title bar, like the legacy side bar
         dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
         dock.setWidget(box)
-        box.setFixedWidth(128)
+        box.setMinimumWidth(128)                  # drag the edge of the bar to widen it
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
+        self.resizeDocks([dock], [128], Qt.Horizontal)     # opens narrow, as before
         self._left_page_for_tab(self.tabs.currentIndex())
 
     def _left_page_for_tab(self, index: int):
@@ -1394,19 +1470,24 @@ class DesignManager(QMainWindow):
         """
         if not self.close_project():
             return
+        self.progress.begin(f'Opening project {os.path.basename(path)}...')
         try:
-            self.project = open_project(path)
-        except Exception as e:
-            QMessageBox.critical(self, 'Open project', f'Cannot open {path}:\n{e}')
-            return
-        self.project.cache.update(self._load_hdl_cache())
-        self.prefs.add_recent(path)
-        self.log(f'Opened project {path} ({len(self.project.libraries)} libraries)')
-        for err in self.project.errors:
-            self.log(err, 'warning')
-        self.fill_project()
-        if self.project.default_library and self.project.library(self.project.default_library):
-            self.explore(self.project.library(self.project.default_library))
+            try:
+                self.project = open_project(path)
+            except Exception as e:
+                QMessageBox.critical(self, 'Open project', f'Cannot open {path}:\n{e}')
+                return
+            self.project.progress = self.progress.scan_library
+            self.project.cache.update(self._load_hdl_cache())
+            self.prefs.add_recent(path)
+            self.log(f'Opened project {path} ({len(self.project.libraries)} libraries)')
+            for err in self.project.errors:
+                self.log(err, 'warning')
+            self.fill_project()
+            if self.project.default_library and self.project.library(self.project.default_library):
+                self.explore(self.project.library(self.project.default_library))
+        finally:
+            self.progress.end()
 
     def close_project(self) -> bool:
         """File > Close Project: close the editors (asking for unsaved work), the library tabs, and
@@ -1464,19 +1545,22 @@ class DesignManager(QMainWindow):
             self.libs.blockSignals(False)
             return
         mine = QTreeWidgetItem([f'My Project:   {p.path}'])
+        mine.setData(0, Qt.UserRole, 'project')
         mine.setCheckState(0, Qt.Checked)
         for text in ('Verilog Library Search Path:  <None>', 'Verilog Implicit Include Libraries:  <None>'):
             mine.addChild(QTreeWidgetItem([text]))
         self.project_info.addTopLevelItem(mine)
         mine.setExpanded(True)
         shared = QTreeWidgetItem([f'Shared Project: {p.shared_path or "<None>"}'])
+        shared.setData(0, Qt.UserRole, 'shared')
         shared.setCheckState(0, Qt.Checked if p.shared_path else Qt.Unchecked)
         self.project_info.addTopLevelItem(shared)
         root = p.design_root_unit()
         root_lib = root.library if root is not None else None
         for title, key in (('Regular Libraries', 'regular'), ('Protected Libraries', 'protected'),
                            ('Downstream Only Libraries', 'downstream')):
-            libs = sorted((l for l in p.libraries if l.type == key), key=lambda l: l.name.lower())
+            libs = sorted((l for l in p.libraries if l.type == key), key=lambda l: l.name.lower(),
+                          reverse=self.lib_sort_desc)
             g = QTreeWidgetItem([f'{title} [ {len(libs)} items ]' if libs else f'{title} [ Empty ]'])
             g.setData(0, Qt.UserRole, key)
             shown = key == 'regular' or (key == 'protected' and self.show_protected.isChecked())
@@ -1489,7 +1573,7 @@ class DesignManager(QMainWindow):
                 it.setData(0, Qt.UserRole, lib)
                 it.setIcon(0, library_icon(key == 'protected', lib.origin == 'shared', lib is root_lib))
                 tip = [f'Library {lib.name} ({lib.type})', 'HDL: ' + '; '.join(lib.hdl_dirs),
-                       'Graphics: ' + (lib.hds_dir or '-')]
+                       'Graphics: ' + (lib.meta_dir or '-')]
                 if lib is root_lib:
                     it.setForeground(0, QBrush(ROOT_TEXT))
                     tip.insert(1, f'Holds the design root {p.design_root}')
@@ -1499,8 +1583,8 @@ class DesignManager(QMainWindow):
                 it.setToolTip(0, '\n'.join(tip))
                 for d in lib.hdl_dirs:
                     it.addChild(QTreeWidgetItem([f'HDL: {d}']))
-                if lib.hds_dir:
-                    it.addChild(QTreeWidgetItem([f'Graphics: {lib.hds_dir}']))
+                if lib.meta_dir:
+                    it.addChild(QTreeWidgetItem([f'Graphics: {lib.meta_dir}']))
                 g.addChild(it)
             g.setExpanded(shown)
         self.libs.blockSignals(False)
@@ -1521,17 +1605,86 @@ class DesignManager(QMainWindow):
         it = self.libs.currentItem()
         return it.data(0, Qt.UserRole) if it else None
 
-    def _lib_menu(self, pos):
-        """Right-click menu of a library on the Project page."""
-        it = self.libs.itemAt(pos)
-        lib = it.data(0, Qt.UserRole) if it else None
-        if not isinstance(lib, Library):
+    def _page_menu(self, tree: QTreeWidget, pos):
+        """Right-click on the Project page: the menu of the row (My Project, Shared Project, a
+        library group, a library) or of the empty space (gui/explorer_menus.py). A row counts only
+        on its icon / text; the rest of the project rows has no menu."""
+        it = M.text_item(tree, pos)
+        d = it.data(0, Qt.UserRole) if it is not None else None
+        if it is None:
+            if tree is not self.libs:
+                return
+            entries = M.page_blank_menu(self)
+        elif isinstance(d, Library):
+            entries = M.library_menu(self, d)
+        elif d == 'project':
+            entries = M.project_menu(self)
+        elif d == 'shared':
+            entries = M.shared_menu(self)
+        elif d in ('regular', 'protected', 'downstream'):
+            entries = M.group_menu(self, d)
+        else:
+            return                                  # search path rows, HDL / graphics folder rows
+        M.popup(entries, self, tree.viewport().mapToGlobal(pos))
+
+    def refresh_project(self):
+        """Refresh (F5) on the Project page: rescan the open libraries and redraw the page."""
+        self.refresh()
+        self.fill_project()
+
+    def refresh_library(self, lib: Library):
+        """Refresh Library: read the library again (its tab too when it is open)."""
+        if self.project is None:
             return
-        m = QMenu(self)
-        m.addAction('Explore Library', lambda: self.explore(lib))
-        m.addAction('Set As Default', lambda: (self.project.set_default_library(lib.name), self.fill_project()))
-        m.addAction('Generate whole library', lambda: self.generate_library(lib))
-        m.exec(self.libs.viewport().mapToGlobal(pos))
+        if lib.name in self.explorers:
+            self.explorers[lib.name].refresh()
+        else:
+            lib.scan(self.project.cache, self.project.progress)
+        self.fill_project()
+        self.log(f'Library {lib.name} refreshed: {len(lib.units)} design units, {len(lib.files)} HDL files')
+
+    def refresh_libraries(self, kind: str):
+        """Refresh Libraries on a group row: refresh every library of that group."""
+        for lib in [l for l in self.project.libraries if l.type == kind] if self.project else []:
+            self.refresh_library(lib)
+
+    def sort_libraries(self, descending: bool):
+        """Sort > Ascending / Descending of the library groups."""
+        self.lib_sort_desc = descending
+        self.fill_project()
+
+    def set_default_library(self, lib: Library):
+        """Set as Default Library (written to the .hdp)."""
+        self.project.set_default_library(lib.name)
+        self.fill_project()
+        self.log(f'Default library is now {lib.name}; saved in {self.project.path}')
+
+    def change_library_type(self, lib: Library, lib_type: str):
+        """Change Library Type To > Regular / Protected / Downstream Only (written to the .hdp)."""
+        old = lib.type
+        self.project.set_library_type(lib, lib_type)
+        if lib.name in self.explorers:
+            self.explorers[lib.name].refresh()
+        self.fill_project()
+        self.log(f'Library {lib.name}: type {old} -> {lib_type}; saved in {self.project.path}')
+
+    def unset_design_root(self):
+        """Unset Design Root: the project has no design root any more (written to the .hdp)."""
+        if self.project is None:
+            return
+        old = self.project.design_root
+        self.project.unset_design_root()
+        self.log(f'Design root {old} unset; saved in {self.project.path}')
+        self.fill_project()
+        for ex in self.explorers.values():
+            ex._fill_units()
+            ex._fill_hierarchy()
+
+    def close_explorer(self, ex: 'LibraryExplorer'):
+        """Close the library tab `ex` (Close Library / Close Current Design Explorer)."""
+        i = self.tabs.indexOf(ex)
+        if i > 0:
+            self._close_tab(i)
 
     def explore(self, lib: Library | None):
         """Open (or show) the tab of library `lib`."""
@@ -1741,7 +1894,7 @@ class DesignManager(QMainWindow):
         read-only when its library is protected.
         """
         if lib is None and self.project is not None:
-            lib = next((l for l in self.project.libraries if any(os.path.dirname(path) == d for d in l.hdl_dirs)), None)
+            lib = next((l for l in self.project.libraries if l.owns(path)), None)
         if self.prefs.use_external_editor and self.prefs.external_editor:
             cmd = self.prefs.external_editor.replace('{file}', shlex.quote(path)).replace('{line}', '1')
             try:
@@ -1783,7 +1936,7 @@ class DesignManager(QMainWindow):
         """A text file was saved: rescan its library (its units and ports may have changed)."""
         self.log(f'Saved {path}')
         for ex in self.explorers.values():
-            if any(os.path.dirname(path) == d for d in ex.lib.hdl_dirs):
+            if ex.lib.owns(path):
                 ex.refresh()
 
     def editor_closed(self, ctx: EditorContext):
@@ -1854,6 +2007,7 @@ class DesignManager(QMainWindow):
         if s.geometry:
             self.restoreGeometry(QByteArray.fromBase64(s.geometry.encode('ascii')))
         self._session_quiet = True
+        self.progress.begin(f'Restoring the last session ({os.path.basename(target)})...')
         try:
             self.load_project(target)
             if self.project is None or not same:
@@ -1875,6 +2029,7 @@ class DesignManager(QMainWindow):
                 self.tabs.setCurrentIndex(0)
         finally:
             self._session_quiet = False
+            self.progress.end()
         self.log(f'Restored the last session ({len(s.editors)} window(s))')
         self.save_session()
         return True
@@ -1986,7 +2141,7 @@ class DesignManager(QMainWindow):
     def generate_library(self, lib: Library):
         """Generate every unit of `lib` with a graphical view."""
         if not lib.scanned:
-            lib.scan(self.project.cache)
+            lib.scan(self.project.cache, self.project.progress)
         units = [u for u in lib.units.values() if u.graphic_view()]
         self.log(f'Generating {len(units)} design unit(s) in {lib.name}')
         self.generate_units(units)
@@ -2020,7 +2175,7 @@ class DesignManager(QMainWindow):
     def open_project_dialog(self):
         """File > Open Project: choose a .hdp file."""
         path, _ = QFileDialog.getOpenFileName(self, 'Open project', os.path.dirname(self.prefs.recent_projects[0])
-                                              if self.prefs.recent_projects else '', 'HDS project (*.hdp)')
+                                              if self.prefs.recent_projects else '', 'Project files (*.hdp)')
         if path:
             self.load_project(path)
 
@@ -2056,7 +2211,7 @@ class DesignManager(QMainWindow):
         if self.prefs.downcase_names:
             unit = unit.lower()                     # Main Settings > General
         if not lib.scanned:
-            lib.scan(self.project.cache)
+            lib.scan(self.project.cache, self.project.progress)
         if unit in lib.units:
             return QMessageBox.warning(self, 'New design content', f'{unit} already exists in {lib.name}.')
         kind = dlg.kind.currentData()
@@ -2072,7 +2227,7 @@ class DesignManager(QMainWindow):
             model.save(path)
             self.log(f'Created state machine {lib.name}/{unit}/{view}')
         elif kind == 'bd':
-            # an empty block diagram (as HDS creates one); its ports come from the nets and
+            # an empty block diagram (as the legacy tool creates one); its ports come from the nets and
             # PortIOs drawn on it, so the Ports list of the dialog is not used
             from bd_model import BlockDiagram
             view = dlg.view.text().strip() or 'struct'
@@ -2128,7 +2283,7 @@ class DesignManager(QMainWindow):
         project.set_allowed_extensions(self.prefs.verilog_extensions)
         generate.GENERATED_EXT.update(verilog=self.prefs.generated_ext or 'v', systemverilog=self.prefs.sv_ext or 'sv')
         text_editor.TAB_WIDTH = int(self.prefs.verilog_style.get('tab_width', 2))
-        # the generators follow Options > Verilog > Style as HDS does
+        # the generators follow Options > Verilog > Style as the legacy tool does
         from codegen.common import set_style
         st = self.prefs.verilog_style
         set_style(st.get('tab_width', 2), st.get('param_mapping', 'Named'), st.get('implicit_event', False))

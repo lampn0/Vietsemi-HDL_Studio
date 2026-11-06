@@ -9,12 +9,13 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from prefs import Prefs
+from formats.names import TEAM_VER_VAR
 
 NOT_USED = 'Not used by HDL Studio yet'
 
 
 def _off(*widgets):
-    """Disable widgets that show an HDS setting HDL Studio does not use yet (with a tool tip saying so)."""
+    """Disable widgets that show a legacy setting HDL Studio does not use yet (with a tool tip saying so)."""
     for w in widgets:
         w.setEnabled(False)
         w.setToolTip(NOT_USED)
@@ -67,7 +68,7 @@ class MainSettingsDialog(QDialog):
         v.addWidget(box)
         box = QGroupBox('Temp Directory'); r, self.temp, tb = _path_row(p.temp_dir, self); box.setLayout(r)
         _off(self.temp, tb); v.addWidget(box)
-        box = QGroupBox('Remote Simulation Directory Location'); r, remote, rb = _path_row('$HDS_TEAM_VER/remote', self)
+        box = QGroupBox('Remote Simulation Directory Location'); r, remote, rb = _path_row(f'${TEAM_VER_VAR}/remote', self)
         box.setLayout(r); _off(remote, rb); v.addWidget(box)
         box = QGroupBox('Project Property File'); r, prop, pb = _path_row('', self); box.setLayout(r)
         _off(prop, pb); v.addWidget(box)
@@ -131,7 +132,7 @@ class MainSettingsDialog(QDialog):
         v.addWidget(box)
         box = QGroupBox('Title Blocks'); b = QVBoxLayout(box)
         b.addWidget(QLabel('Template file:'))
-        r, tmpl, tbb = _path_row('$HDS_TEAM_VER/title_block.tmpl', self); b.addLayout(r)
+        r, tmpl, tbb = _path_row(f'${TEAM_VER_VAR}/title_block.tmpl', self); b.addLayout(r)
         add_tb = QCheckBox('Add Title Blocks in new diagrams'); b.addWidget(add_tb)
         _off(tmpl, tbb, add_tb)
         v.addWidget(box)

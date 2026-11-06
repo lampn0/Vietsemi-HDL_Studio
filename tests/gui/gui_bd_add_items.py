@@ -30,11 +30,11 @@ from PySide6.QtGui import QMouseEvent
 mp = win.canvas.mapFromScene(end + QPointF(60, 40))
 QApplication.sendEvent(vp, QMouseEvent(QEvent.MouseMove, QPointF(mp), QPointF(vp.mapToGlobal(mp)), Qt.NoButton, Qt.NoButton, Qt.NoModifier)); QTest.qWait(200)
 check(sc._ghost is not None and getattr(sc._ghost[1], 'ghost', False),
-      'adding a port shows its outline under the cursor (as HDS)')
+      'adding a port shows its outline under the cursor (as the legacy tool)')
 win.canvas.grab().save(out + '/ghost.png')
 n_pio = len(win.bd.port_ios)
 from gui.bd_editor import PORT_EDGE
-QTest.mouseClick(vp, Qt.LeftButton, Qt.NoModifier, win.canvas.mapFromScene(end)); QTest.qWait(300)   # the cursor is the preview's wire end (as HDS): on the net end
+QTest.mouseClick(vp, Qt.LeftButton, Qt.NoModifier, win.canvas.mapFromScene(end)); QTest.qWait(300)   # the cursor is the preview's wire end (as the legacy tool): on the net end
 pio = win.bd.port_ios[-1] if len(win.bd.port_ios) > n_pio else None
 w = next(x for x in win.bd.wires if x.id == w.id)
 check(pio is not None and pio.name == 'dram_cmd_rdy', f'click on the net end adds port "{pio.name if pio else None}"')
@@ -58,7 +58,7 @@ def accept_dialog():
     seen.append(d.windowTitle()); d.grab().save(out + '/emb_dialog.png'); d.accept()
 QTimer.singleShot(200, accept_dialog)
 item = sc.items_by_id[eb.id]
-win.set_mode('select')            # Esc: Add Embedded Block stays active after a placement, as in HDS
+win.set_mode('select')            # Esc: Add Embedded Block stays active after a placement, as in the legacy tool
 win.raise_(); win.activateWindow(); QTest.qWaitForWindowActive(win, 2000)   # the in-place editor closes when focus leaves
 QTest.mouseDClick(vp, Qt.LeftButton, Qt.NoModifier, win.canvas.mapFromScene(item.body().center())); QTest.qWait(400)
 eb = next(e for e in win.bd.embedded if e.id == eb.id)

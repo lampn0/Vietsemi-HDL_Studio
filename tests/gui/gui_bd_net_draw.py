@@ -1,4 +1,4 @@
-"""Drawing a net as HDS 2021.1 does it (watched on the real HDS with tests/hds_gui/hds.py):
+"""Drawing a net as the legacy tool does it (watched on the legacy tool):
 a click in open space adds a right-angle corner and the net goes on, a double-click ends it in
 open space, a click on an object (here the end of another net) ends it there at once."""
 import os, sys
@@ -59,7 +59,7 @@ print('   points', pts)
 ok('ends where clicked', pts and pts[0] == (8, 8) and pts[-1] == (20, 12))
 ortho = all(abs(a[0] - b[0]) < .01 or abs(a[1] - b[1]) < .01 for a, b in zip(pts, pts[1:]))
 ok('all segments are horizontal or vertical', ortho)
-ok('after the horizontal segment the net turns vertical first (as HDS)', (15, 12) in pts)
+ok('after the horizontal segment the net turns vertical first (as the legacy tool)', (15, 12) in pts)
 ok('default name sig0', w is not None and w.net == 'sig0')
 
 # 2. a click on the dangling end of sig0 ends a new net there at once, joined to sig0

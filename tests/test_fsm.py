@@ -1,7 +1,7 @@
 """Regression tests for the FSM prototype.
 
 Run from the prototype folder:  python -m unittest discover tests
-The golden test needs the legacy sample files; point DHDS_SAMPLES at the
+The golden test needs the legacy sample files; point HDLSTUDIO_SAMPLES at the
 folder holding fsm.sm and gc_control_fsm.v (default: D:/workspace).
 """
 import os
@@ -15,10 +15,10 @@ from codegen import fsm_codegen  # noqa: E402
 from codegen.encoding import encode  # noqa: E402
 from codegen.fsm_codegen import assignment_target, generate, split_statements  # noqa: E402
 from examples import traffic_light  # noqa: E402
-from hds.import_sm import import_sm  # noqa: E402
+from formats.import_sm import import_sm  # noqa: E402
 from model import FsmView  # noqa: E402
 
-SAMPLES = os.environ.get('DHDS_SAMPLES', 'D:/workspace')
+SAMPLES = os.environ.get('HDLSTUDIO_SAMPLES', 'D:/workspace')
 SM = os.path.join(SAMPLES, 'fsm.sm')
 GOLDEN = os.path.join(SAMPLES, 'gc_control_fsm.v')
 
@@ -81,8 +81,8 @@ class TestExample(unittest.TestCase):
 
 @unittest.skipUnless(os.path.exists(SM) and os.path.exists(GOLDEN), 'legacy samples not found')
 class TestLegacyGolden(unittest.TestCase):
-    """gc_control_fsm read from the HDS .sm generates exactly what the old tool generated
-    (needs DHDS_SAMPLES, see the module docstring).
+    """gc_control_fsm read from the legacy tool .sm generates exactly what the old tool generated
+    (needs HDLSTUDIO_SAMPLES, see the module docstring).
     """
     def test_body_matches_legacy_tool(self):
         """The body from "// State encoding" to the end matches the golden file character for character."""

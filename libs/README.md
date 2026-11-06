@@ -1,9 +1,9 @@
 # libs - HDL libraries shipped with HDL Studio
 
-The counterpart of `hdl_libs/` in an HDS installation: HDL libraries that come with the tool
-and that projects can map, for example shared component libraries or templates for new units.
+HDL libraries that come with the tool and that projects can map, for example shared component
+libraries or templates for new units.
 
-Each library uses the HDS library layout, so a project maps it like any other library:
+Each library uses the usual library layout, so a project maps it like any other library:
 
 ```
 libs/<library>/hdl/          Verilog / SystemVerilog source files

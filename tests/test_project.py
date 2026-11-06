@@ -8,14 +8,14 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
 
 from codegen.bd_codegen import generate_bd  # noqa: E402
-from hds.import_bd import import_bd  # noqa: E402
+from formats.import_bd import import_bd  # noqa: E402
 from project import lock  # noqa: E402
 from project.generate import generate_unit, native_path  # noqa: E402
 from project.hdp import read_hdp  # noqa: E402
 from project.project import create_project, open_project  # noqa: E402
 from project.templates import new_fsm  # noqa: E402
 
-SAMPLES = os.environ.get('DHDS_SAMPLES', 'D:/workspace')
+SAMPLES = os.environ.get('HDLSTUDIO_SAMPLES', 'D:/workspace')
 BD = os.path.join(SAMPLES, 'struct.bd')
 BD_GOLDEN = os.path.join(SAMPLES, 'pc_global_controller.v')
 
@@ -37,7 +37,7 @@ class TestProject(unittest.TestCase):
         hdp = os.path.join(self.dir, 'demo', 'demo.hdp')
         proj = create_project(hdp, 'lib_a')
         lib = proj.library('lib_a')
-        self.assertTrue(os.path.isdir(lib.main_hdl_dir) and os.path.isdir(lib.hds_dir))
+        self.assertTrue(os.path.isdir(lib.main_hdl_dir) and os.path.isdir(lib.meta_dir))
         raw = read_hdp(hdp)
         self.assertEqual(raw.first('hdl', 'lib_a'), '$HDS_PROJECT_DIR/lib_a/hdl')
         self.assertEqual(raw.first('hds_settings', 'default_library'), 'lib_a')
@@ -105,7 +105,7 @@ class TestLock(unittest.TestCase):
 
 @unittest.skipUnless(os.path.exists(BD) and os.path.exists(BD_GOLDEN), 'legacy samples not found')
 class TestBlockDiagramGolden(unittest.TestCase):
-    """pc_global_controller read from the HDS .bd generates exactly what the old tool generated."""
+    """pc_global_controller read from the legacy tool .bd generates exactly what the old tool generated."""
     def test_body_matches_legacy_tool(self):
         """Four instances, no warnings, body from "// Internal Declarations" identical to the golden file."""
         bd = import_bd(BD, 'protocol_controller', 'pc_global_controller')

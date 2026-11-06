@@ -1,2 +1,0 @@
-DEFAULT_ARCHITECTURE atom uart_tx
-DEFAULT_FILE atom uart_tx/fsm.sm

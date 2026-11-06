@@ -1,32 +1,36 @@
 # Roadmap: state of the work and what is not done yet
 
 Requirement ids (PRJ, GEN, FSM, BD, ...) refer to [requirements.md](requirements.md).
-Last reviewed: 2026-11-05.
+Last reviewed: 2026-11-07.
 
 ## Where the tool stands
 
 | Area | State |
 |---|---|
-| Projects (`.hdp`), libraries, design units, Design Manager panes | working, same file formats as HDS |
+| Projects (`.hdp`), libraries, design units, Design Manager panes | working, same file formats as the legacy tool |
 | Text editor (DesignPad), slang syntax check | working |
-| State diagram editor | working; reads **and writes back** the HDS `.sm` (both tools edit the same file) |
-| Block diagram editor | working; reads the HDS `.bd`, **saves as `struct.bd.json`** (no `.bd` write-back yet) |
+| State diagram editor | working; reads **and writes back** the legacy `.sm` (both tools edit the same file) |
+| Block diagram editor | working; reads the legacy `.bd`, **saves as `struct.bd.json`** (no `.bd` write-back yet) |
 | Symbols (`.sb`) | ports kept in step with the state diagram's ports when it is saved |
-| HDL generation | state machines and block diagrams; on the real project `dti_hbm` all 20 state machines and 45 of 46 block diagrams are identical to what HDS 2024.2 generates (`tests/hds_compare/`) |
+| HDL generation | state machines and block diagrams; on the real project `dti_hbm` all 20 state machines and 45 of 46 block diagrams are identical to what the legacy tool generates |
 | Session restore, autosave / crash recovery, edit locks | working |
+| Editor menus and toolbars | laid out as the legacy editors (Standard, State / Block Diagram Tools, HDL Tools, Tasks), icons drawn in code; shared commands: Find / Replace, Align / Distribute, Copy Picture, Print, Back / Forward, Open Up, Comment Text, Panels, Document And Visualize (single level) |
 | Packaging | PyInstaller recipe for Windows (`resources/scripts/`); CentOS 9 runs from source |
 
 ## Open items
 
 ### Block diagram
-- Write the diagram back to the HDS `.bd` (as `export_sm` does for `.sm`), so HDS can open
+- Write the diagram back to the legacy `.bd` (as `export_sm` does for `.sm`), so the legacy tool can open
   diagrams edited here (BD, VM).
 - Add Block, bundles, global connectors, buffer / master / slave ports: menu entries exist,
   greyed out.
-- Rotate / flip, align / distribute, appearance of nets, comment graphics, panels.
-- Autoroute / Connect By Name / Layout Diagram.
+- Rotate / flip, group, appearance of nets, comment graphics.
+- Autoconnect / Autobundle / Autoroute / Layout Diagram (Connect By Name is done).
+- Writing comment texts and panels to the legacy `.bd` (kept in `struct.bd.json`).
+- Ports > Clock / Not / Ordering / Attributes / Comments, Insert / Remove Net, Scope For Changes,
+  Shape, Page Break Preview.
 - Copy / paste of nets and ports (only components and frames are copied today).
-- `pb_upsize_wdata`: the only diagram of `dti_hbm` where HDS does not declare internal
+- `pb_upsize_wdata`: the only diagram of `dti_hbm` where the legacy tool does not declare internal
   signals alphabetically; its order is not reproduced yet.
 
 ### State diagram
@@ -34,7 +38,11 @@ Last reviewed: 2026-11-05.
   output encoded, pragmas (State Machine Properties > Generation is shown greyed).
 - Writing back to the `.sm`: hierarchical states added in HDL Studio, added / removed
   concurrent machines, parameter table changes (reported as warnings when saved).
-- Copy / paste of diagram objects; Change To; Re-level (add / remove hierarchy).
+- Re-level (add / remove hierarchy); Change To > Hierarchical State / Entry / Exit / Interrupt Point;
+  Text > Show / Hide Text, Send to Editor.
+- Writing comment texts and panels back to the `.sm` (kept in `.fsm.json`; saving to a `.sm`
+  warns that they are not written).
+- Document And Visualize through components / from the design root (single level is done).
 
 ### Generation and project
 - When the language of a view changes, the old `.v` / `.sv` file is not deleted (a warning is

@@ -61,7 +61,7 @@ class Parameter:
 @dataclass
 class State:
     """A state of the diagram: its name, position (scene units, centre of the circle) and the
-    entry / in / exit actions HDS shows in the state's action box.
+    entry / in / exit actions the legacy tool shows in the state's action box.
     """
     id: str
     name: str
@@ -73,14 +73,14 @@ class State:
     encoding: str = ''               # manual encoding value
     actions_x: float | None = None   # top-left of the action box on the diagram (None = automatic)
     actions_y: float | None = None
-    radius: float | None = None      # circle radius saved by HDS (None = HDL Studio's default)
-    is_wait: bool = False            # a wait state (HDS: circle in an octagon)
+    radius: float | None = None      # circle radius saved by the legacy tool (None = HDL Studio's default)
+    is_wait: bool = False            # a wait state (the legacy tool: circle in an octagon)
     wait: str = ''                   # its wait text, e.g. "wait 2"
-    hier: bool = False               # a hierarchical state (HDS CompositeState): its states are inside
-    # geometry read from an HDS file, drawn as it is (scene units, offsets from the action
+    hier: bool = False               # a hierarchical state (legacy CompositeState): its states are inside
+    # geometry read from a legacy file, drawn as it is (scene units, offsets from the action
     # block's top-left): act_size [w, h], tline / bline (y of the lines between the entry,
     # state and exit actions; None = hidden), entry / in / exit [x, y] of each text
-    hds: dict = field(default_factory=dict)
+    orig: dict = field(default_factory=dict)
     parent: str = ''                 # id of the hierarchical state this one is inside ('' = top level)
 
 
@@ -92,26 +92,26 @@ class Junction:
     id: str
     kind: str = 'if'                 # 'if' | 'case'
     expr: str = ''                   # case expression
-    symbol: str = ''                 # text drawn in the diamond (HDS: "&" when new, "if" ...)
+    symbol: str = ''                 # text drawn in the diamond (the legacy tool: "&" when new, "if" ...)
     parent: str = ''                 # id of the hierarchical state it is inside ('' = top level)
     x: float = 0.0
     y: float = 0.0
-    # geometry read from an HDS file (scene units, relative to the node's centre): 'shape'
+    # geometry read from a legacy file (scene units, relative to the node's centre): 'shape'
     # [x0, y0, x1, y1] and its texts by key, each [x0, y0, x1, y1, justify, baseline]
-    hds: dict = field(default_factory=dict)
+    orig: dict = field(default_factory=dict)
 
 
 @dataclass
 class Link:
-    """A link to another state by name (HDS "Link"): a transition into it goes to the target state."""
+    """A link to another state by name (the legacy tool "Link"): a transition into it goes to the target state."""
     id: str
     target: str = ''                 # state name
     x: float = 0.0
     y: float = 0.0
     parent: str = ''                 # id of the hierarchical state it is inside ('' = top level)
-    # geometry read from an HDS file (scene units, relative to the node's centre): 'shape'
+    # geometry read from a legacy file (scene units, relative to the node's centre): 'shape'
     # [x0, y0, x1, y1] and its texts by key, each [x0, y0, x1, y1, justify, baseline]
-    hds: dict = field(default_factory=dict)
+    orig: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -124,9 +124,9 @@ class Point:
     x: float = 0.0
     y: float = 0.0
     parent: str = ''                 # entry / exit points: the hierarchical state they belong to
-    # geometry read from an HDS file (scene units, relative to the node's centre): 'shape'
+    # geometry read from a legacy file (scene units, relative to the node's centre): 'shape'
     # [x0, y0, x1, y1] and its texts by key, each [x0, y0, x1, y1, justify, baseline]
-    hds: dict = field(default_factory=dict)
+    orig: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -147,10 +147,31 @@ class Transition:
     label_x: float | None = None      # top-left of the condition/action box (None = automatic)
     label_y: float | None = None
     prio_at: float | None = None      # where the priority number sits, as a fraction of the line length
-    # geometry read from an HDS file, drawn as it is (scene units, offsets from the box's
+    # geometry read from a legacy file, drawn as it is (scene units, offsets from the box's
     # top-left): box_size [w, h], cond / acts [x, y] of the texts, line (y of the line between
     # them, None = hidden), prio_shown (the priority circle visible)
-    hds: dict = field(default_factory=dict)
+    orig: dict = field(default_factory=dict)
+
+
+@dataclass
+class Comment:
+    """Free comment text on a state diagram (Add > Comment Text); (x, y) is its top-left corner."""
+    id: str
+    text: str = ''
+    x: float = 0.0
+    y: float = 0.0
+
+
+@dataclass
+class Panel:
+    """A named rectangle of a diagram (Add > Panel): an area to view (View > View Panel) or print on
+    its own; (x, y) is its top-left corner. Used by state and block diagrams."""
+    id: str
+    name: str = 'Panel0'
+    x: float = 0.0
+    y: float = 0.0
+    w: float = 600.0
+    h: float = 400.0
 
 
 @dataclass
@@ -164,15 +185,17 @@ class Machine:
     links: list[Link] = field(default_factory=list)
     points: list[Point] = field(default_factory=list)
     transitions: list[Transition] = field(default_factory=list)
+    comments: list[Comment] = field(default_factory=list)
+    panels: list[Panel] = field(default_factory=list)
     current_state_name: str = 'current_state'
     next_state_name: str = 'next_state'
     encoding: str = 'sequential'     # ENCODINGS
     state_decl: str = 'parameter'    # STATE_DECLS
-    # Legacy generation property "nextStateClocking" (SmGenChar of the state machine): HDS then
+    # Legacy generation property "nextStateClocking" (SmGenChar of the state machine): the legacy tool then
     # labels the clocked actions "Transition Actions for internal signals only"
     next_state_clocking: bool = False
-    # visible area when HDS last saved the diagram (scene units x0, y0, x1, y1): the editor
-    # opens there, as HDS does, when it has no view of its own for the diagram
+    # visible area when the legacy tool last saved the diagram (scene units x0, y0, x1, y1): the editor
+    # opens there, as the legacy tool does, when it has no view of its own for the diagram
     view_area: list[float] | None = None
 
     # -- lookup helpers -------------------------------------------------
@@ -202,8 +225,8 @@ class Machine:
 
     def new_id(self, prefix: str) -> str:
         """A new id `<prefix><n>` (lowest n >= 1) not used by any node or transition of the machine."""
-        used = {n.id for coll in (self.states, self.junctions, self.links, self.points, self.transitions)
-                for n in coll}
+        used = {n.id for coll in (self.states, self.junctions, self.links, self.points, self.transitions,
+                                  self.comments, self.panels) for n in coll}
         i = 1
         while f'{prefix}{i}' in used:
             i += 1
@@ -212,12 +235,12 @@ class Machine:
 
 @dataclass
 class FsmView:
-    """A state machine view of a design unit (HDS "fsm" view): ports and signals, parameters, one
+    """A state machine view of a design unit (the legacy tool "fsm" view): ports and signals, parameters, one
     or more machines, the declaration blocks (directives, concurrent statements, global actions)
     and the layout data needed to redraw the diagram as it was.
 
-    Saved as JSON (`<view>.fsm.json`, see to_json) or read from / written to an HDS .sm file by
-    hds.import_sm / export_sm.
+    Saved as JSON (`<view>.fsm.json`, see to_json) or read from / written to a legacy .sm file by
+    formats.import_sm / export_sm.
     """
     library: str = 'work'
     unit: str = 'my_fsm'
@@ -237,12 +260,12 @@ class FsmView:
     clocked_affix: str = '_cld'
     # name of a new state, from the diagram's default-state template ('' = HDL Studio's S<n>)
     default_state_name: str = ''
-    # text of a new junction, from the diagram's default-junction template (HDS: "&")
+    # text of a new junction, from the diagram's default-junction template (the legacy tool: "&")
     default_junction_symbol: str = ''
     # where the declaration blocks are drawn on the diagram (scene units, top-left of each title):
     # global, concurrent, module, status, statereg, compdir; missing = HDL Studio's default layout
     decl_pos: dict = field(default_factory=dict)
-    # the declaration blocks hidden on the diagram (HDS: their title text has isHidden 1)
+    # the declaration blocks hidden on the diagram (the legacy tool: their title text has isHidden 1)
     decl_hidden: list = field(default_factory=list)
     header: str = ''
 
@@ -252,8 +275,8 @@ class FsmView:
 
     # -- persistence ----------------------------------------------------
     def to_json(self) -> str:
-        """The whole view as JSON text (format tag 'dolphin-hds-fsm', version 1)."""
-        return json.dumps({'format': 'dolphin-hds-fsm', 'version': 1, 'view': asdict(self)}, indent=2)
+        """The whole view as JSON text (format tag 'hdlstudio-fsm', version 1)."""
+        return json.dumps({'format': 'hdlstudio-fsm', 'version': 1, 'view': asdict(self)}, indent=2)
 
     @classmethod
     def from_json(cls, text: str) -> 'FsmView':
@@ -275,7 +298,8 @@ class FsmView:
 
 _LIST_TYPES = {
     'signals': Signal, 'parameters': Parameter, 'machines': Machine, 'states': State,
-    'junctions': Junction, 'links': Link, 'points': Point, 'transitions': Transition,
+    'junctions': Junction, 'links': Link, 'points': Point, 'transitions': Transition, 'comments': Comment,
+    'panels': Panel,
 }
 
 

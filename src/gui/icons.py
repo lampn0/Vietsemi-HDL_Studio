@@ -30,6 +30,36 @@ def _arrow(p: QPainter, x1, y1, x2, y2, color=Qt.black):
                              QPointF(x2 - 6 * math.cos(a + 0.45), y2 - 6 * math.sin(a + 0.45))]))
 
 
+REFRESH_GREEN, REFRESH_DARK = QColor(40, 170, 40), QColor(0, 100, 0)
+
+
+def draw_refresh(p: QPainter, size: float) -> None:
+    """The Refresh icon of every window: two green arrows turning round, in a `size` square.
+    Shared by the editors (icon('refresh')) and the Design Manager toolbar (dm_icons 'tb_refresh').
+    """
+    import math
+    c, r = size / 2, size * 0.32
+    width = max(1.6, size * 0.14)
+    head = size * 0.2
+    for start in (40, 220):                       # two arcs of 140 degrees, anticlockwise
+        span = 140
+        rect = QRectF(c - r, c - r, 2 * r, 2 * r)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(REFRESH_DARK, width + 1.2, Qt.SolidLine, Qt.FlatCap))
+        p.drawArc(rect, start * 16, span * 16)
+        p.setPen(QPen(REFRESH_GREEN, width, Qt.SolidLine, Qt.FlatCap))
+        p.drawArc(rect, start * 16, span * 16)
+        a = math.radians(start + span)            # arrow head at the end, pointing along the turn
+        x, y = c + r * math.cos(a), c - r * math.sin(a)
+        dx, dy = -math.sin(a), -math.cos(a)       # direction of the anticlockwise turn (y down)
+        nx, ny = math.cos(a), -math.sin(a)        # outwards
+        p.setBrush(REFRESH_GREEN)
+        p.setPen(QPen(REFRESH_DARK, max(0.8, size / 24)))
+        p.drawPolygon(QPolygonF([QPointF(x + dx * head, y + dy * head),
+                                 QPointF(x + nx * head * 0.85, y + ny * head * 0.85),
+                                 QPointF(x - nx * head * 0.85, y - ny * head * 0.85)]))
+
+
 def icon(name: str) -> QIcon:
     """The toolbar icon called `name`, drawn once with QPainter (24x24) and cached. Each branch
     below draws one icon; an unknown name gives an empty (transparent) icon.
@@ -207,6 +237,8 @@ def icon(name: str) -> QIcon:
     elif name == 'open_down':
         p.setBrush(QColor(0, 200, 0)); p.setPen(QPen(Qt.black, 1)); p.drawRect(QRectF(3, 3, 12, 10))
         _arrow(p, 12, 10, 19, 20)
+    elif name == 'refresh':
+        draw_refresh(p, S)
     p.end()
     ic = QIcon(pm)
     _CACHE[name] = ic

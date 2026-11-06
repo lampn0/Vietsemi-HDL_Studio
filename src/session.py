@@ -1,4 +1,4 @@
-"""The working session, kept between runs in ~/.config/vietsemi-hdl-studio:
+"""The working session, kept between runs in the per-user release folder (~/hdl_studio/user/v2026.12):
 
 - session.json: the open project, its library tabs and the editor windows
   (with their place on screen), so the tool reopens where the user left off;
@@ -17,7 +17,7 @@ from prefs import Prefs
 
 
 def _dir() -> str:
-    """The configuration folder (the one holding prefs.json)."""
+    """The per-user release folder (the one holding user_prefs.json)."""
     return os.path.dirname(Prefs.path())
 
 
@@ -49,7 +49,7 @@ class Session:
 
     @staticmethod
     def path() -> str:
-        """Location of session.json, next to prefs.json."""
+        """Location of session.json, next to user_prefs.json."""
         return os.path.join(_dir(), 'session.json')
 
     def save(self) -> None:

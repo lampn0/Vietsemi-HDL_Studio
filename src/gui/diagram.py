@@ -16,8 +16,8 @@ FsmScene builds those items from a Machine (load), handles the add tools and the
 gestures, writes every change into the model and emits `changed_model`. FsmGraphicsView is
 the view widget: zoom, pan, View Area, grid, keyboard nudges.
 
-Coordinates are scene units = HDS units * SCALE (1/75). When an object still has the geometry
-read from the HDS file (the `hds` dicts of the model) it is drawn exactly as HDS drew it;
+Coordinates are scene units = legacy units * SCALE (1/75). When an object still has the geometry
+read from the legacy file (the `orig` dicts of the model) it is drawn exactly as the legacy tool drew it;
 once its text changes, HDL Studio lays it out itself.
 """
 from __future__ import annotations
@@ -30,36 +30,40 @@ from PySide6.QtGui import (QTransform, QColor, QFont, QFontMetricsF, QPainter, Q
 from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsPolygonItem, QGraphicsScene, QGraphicsView, QInputDialog,
                                QRubberBand)
 
-from hds.import_sm import SCALE
+from formats.import_sm import SCALE
 from model import Junction, Link, Machine, Point, State, Transition
 
 # The legacy editors' grid: 1000 database units. Everything placed or moved lands on it.
 GRID = 1000 * SCALE
 
 
+# View > Snap to Grid (on by default, as in the legacy tool)
+SNAP_ON = [True]
+
+
 def snap(v: float) -> float:
-    """Round a coordinate to the HDS grid (1000 HDS units)."""
-    return round(v / GRID) * GRID
+    """Round a coordinate to the legacy grid (1000 legacy units); unchanged with Snap to Grid off."""
+    return round(v / GRID) * GRID if SNAP_ON[0] else v
 
 
 def snap_point(p: QPointF) -> QPointF:
-    """Round a point to the HDS grid."""
+    """Round a point to the legacy grid."""
     return QPointF(snap(p.x()), snap(p.y()))
 
 STATE_R = 28
-STATE_FILL = QColor(0, 255, 255)        # HDS 0,65535,65535
-LINK_FILL = QColor(255, 255, 0)         # HDS 65535,65535,0
-LINK_TIP = 18       # a new link: its stub tip (where HDS puts the cursor) this far left of its centre
-JUNCTION_FILL = QColor(234, 156, 255)    # HDS 59904,39936,65280
+STATE_FILL = QColor(0, 255, 255)        # The legacy tool 0,65535,65535
+LINK_FILL = QColor(255, 255, 0)         # The legacy tool 65535,65535,0
+LINK_TIP = 18       # a new link: its stub tip (where the legacy tool puts the cursor) this far left of its centre
+JUNCTION_FILL = QColor(234, 156, 255)    # The legacy tool 59904,39936,65280
 BOX_PEN = QPen(QColor(0, 120, 220), 1)
-TRANS_BOX_COLOR = QColor(0, 128, 192)   # border of a transition's text box (HDS)
-ACTION_CELL = QColor(153, 217, 234)     # cells of entry / state / exit actions (HDS)
-ACTION_BORDER = QColor(156, 222, 255)   # border of a state's action block (HDS 39936,56832,65280)
-HDS_LINE = 900 / 75                     # one text line of an HDS diagram (900 units, courier / Arial 8)
-PRIO_R = 651 / 75                       # radius of a transition priority circle (HDS)
-ACTION_COLOR = QColor(0, 0, 0)          # transition / state action text: black (HDS)
+TRANS_BOX_COLOR = QColor(0, 128, 192)   # border of a transition's text box (as in the legacy tool)
+ACTION_CELL = QColor(153, 217, 234)     # cells of entry / state / exit actions (as in the legacy tool)
+ACTION_BORDER = QColor(156, 222, 255)   # border of a state's action block (the legacy tool 39936,56832,65280)
+TEXT_LINE = 900 / 75                     # one text line of a legacy diagram (900 units, courier / Arial 8)
+PRIO_R = 651 / 75                       # radius of a transition priority circle (as in the legacy tool)
+ACTION_COLOR = QColor(0, 0, 0)          # transition / state action text: black (as in the legacy tool)
 SEL_PEN = QPen(QColor(255, 120, 0), 2.5)
-# diagram text in Arial, as HDS on Windows draws its "courier" diagram fonts (see bd_editor)
+# diagram text in Arial, as the legacy tool on Windows draws its "courier" diagram fonts (see bd_editor)
 TEXT_FONT = QFont('Arial', 8)
 NAME_FONT = QFont('Arial', 8, QFont.Bold)
 GRAB = 6.0          # pick distance for bend points, in scene units
@@ -70,14 +74,14 @@ def _fm() -> QFontMetricsF:
     return QFontMetricsF(TEXT_FONT)
 
 
-# HDS 2021.1 sizes (HDS units / 75): state radius 3000, junction diamond 3300, the arrow
+# The legacy tool sizes (legacy units / 75): state radius 3000, junction diamond 3300, the arrow
 # (pentagon) of links and points 2250 x 1000 with a 500 stub, recovery circle radius 900
-HDS_STATE_R = 3000 / 75
+DEFAULT_STATE_R = 3000 / 75
 JUNCTION_HALF = 3300 / 75 / 2
 PENT_W, PENT_H, STUB = 2250 / 75, 1000 / 75, 500 / 75
 REC_R = 900 / 75
 STATE_LINE = QColor(0, 128, 192)
-HIER_FILL = QColor(117, 156, 255)        # hierarchical state (HDS 29952,39936,65280)
+HIER_FILL = QColor(117, 156, 255)        # hierarchical state (the legacy tool 29952,39936,65280)
 HIER_LINE = QColor(0, 0, 128)
 STATE_NAME_FONT = QFont('Arial', 10, QFont.Bold)
 LABEL_FONT = QFont('Arial', 8)
@@ -91,26 +95,26 @@ def _pentagon() -> QPolygonF:
 
 
 def _geo_rect(g: list | None) -> QRectF | None:
-    """A rectangle of an HDS geometry entry ([x0, y0, x1, y1, ...], relative to the node)."""
+    """A rectangle of a legacy geometry entry ([x0, y0, x1, y1, ...], relative to the node)."""
     return QRectF(QPointF(g[0], g[1]), QPointF(g[2], g[3])) if g else None
 
 
 def _draw_geo_text(p: QPainter, g: list, text: str, font: QFont) -> None:
-    """Draw a text where HDS had it: on its saved baseline, left / centred / right in its
-    saved extent as HDS justified it (the font differs from HDS's courier, so the justified
-    edge is what stays where HDS put it)."""
+    """Draw a text where the legacy tool had it: on its saved baseline, left / centred / right in its
+    saved extent as the legacy tool justified it (the font differs from the legacy tool's courier, so the justified
+    edge is what stays where the legacy tool put it)."""
     fm = QFontMetricsF(font)
     x0, y0, x1, y1, ju, base = g
     p.setFont(font)
     for k, line in enumerate(text.split('\n')):
         w = fm.horizontalAdvance(line)
         x = (x0 + x1 - w) / 2 if ju == 0 else x1 - w if ju == 2 else x0
-        y = (base if base is not None else y0 + 700 / 75) + k * HDS_LINE
+        y = (base if base is not None else y0 + 700 / 75) + k * TEXT_LINE
         p.drawText(QPointF(x, y), line)
 
 
 def _handles(p: QPainter, r: QRectF) -> None:
-    """Small black squares at the corners of a selected object (HDS)."""
+    """Small black squares at the corners of a selected object (as in the legacy tool)."""
     p.save()
     p.setPen(Qt.NoPen)
     p.setBrush(Qt.black)
@@ -120,14 +124,14 @@ def _handles(p: QPainter, r: QRectF) -> None:
 
 
 def _geo_sig(t, m) -> list:
-    """See hds.import_sm._geo_sig: the line of a transition as read from the file."""
-    from hds.import_sm import _geo_sig as sig
+    """See formats.import_sm._geo_sig: the line of a transition as read from the file."""
+    from formats.import_sm import _geo_sig as sig
     return sig(t, m)
 
 
 def _spline(path: QPainterPath, pts: list[QPointF]) -> None:
     """Continue `path` (at pts[0]) as a smooth curve through the points (Catmull-Rom spline as
-    cubic Beziers), the way HDS draws a transition with route points; two points: a line."""
+    cubic Beziers), the way the legacy tool draws a transition with route points; two points: a line."""
     if len(pts) < 3:
         path.lineTo(pts[-1])
         return
@@ -200,25 +204,25 @@ class NodeItem(QGraphicsItem):
 
 
 class StateItem(NodeItem):
-    """A state as HDS 2021.1 draws it: a cyan circle with a blue outline (radius as saved by
-    HDS, 3000 units by default), the name in Arial 10 bold. A wait state is the circle inside
+    """A state as the legacy tool draws it: a cyan circle with a blue outline (radius as saved by
+    The legacy tool, 3000 units by default), the name in Arial 10 bold. A wait state is the circle inside
     an octagon, with its wait text ("wait 2") above the name."""
 
     def _font(self) -> QFont:
-        """The name font: bold, at the size the HDS file gives (10 for a new state)."""
+        """The name font: bold, at the size the legacy file gives (10 for a new state)."""
         f = QFont(STATE_NAME_FONT)
-        f.setPointSizeF(self.obj.hds.get('font', 10))
+        f.setPointSizeF(self.obj.orig.get('font', 10))
         return f
 
     def radius(self):
-        """Radius of the circle: as HDS saved it, else HDS's default grown to fit the name."""
+        """Radius of the circle: as the legacy tool saved it, else the legacy tool's default grown to fit the name."""
         if self.obj.radius:
-            return self.obj.radius          # as HDS saved it (it sizes the circle itself)
-        # a new state: HDS's default radius, grown so a long name stays inside
-        return max(HDS_STATE_R, QFontMetricsF(self._font()).horizontalAdvance(self.obj.name) / 2 + 7)
+            return self.obj.radius          # as the legacy tool saved it (it sizes the circle itself)
+        # a new state: the legacy tool's default radius, grown so a long name stays inside
+        return max(DEFAULT_STATE_R, QFontMetricsF(self._font()).horizontalAdvance(self.obj.name) / 2 + 7)
 
     def _outer(self) -> float:
-        """Half size of the octagon around a wait state (HDS: 7058 units for a 3000 circle)."""
+        """Half size of the octagon around a wait state (the legacy tool: 7058 units for a 3000 circle)."""
         return self.radius() * 7058 / 6000
 
     def boundary(self, angle):
@@ -243,10 +247,13 @@ class StateItem(NodeItem):
 
     def mouseDoubleClickEvent(self, e):
         """Double-click on the name renames the state in place; elsewhere opens its properties."""
-        # As HDS 2021.1: a double-click on the name edits it in place; elsewhere on the state
+        # As the legacy tool: a double-click on the name edits it in place; elsewhere on the state
         # it opens the state's properties
         if self.name_rect().contains(e.pos()) and not self.fsm_scene.readonly:
             self.fsm_scene.rename_requested.emit(self)
+        elif self.obj.hier:
+            # a hierarchical state opens its own diagram (Open Down), as in the legacy tool
+            self.fsm_scene.open_down_requested.emit(self.obj)
         else:
             self.fsm_scene.edit_requested.emit(self.obj)
 
@@ -262,7 +269,7 @@ class StateItem(NodeItem):
             p.drawPolygon(QPolygonF([QPointF(-k, -o), QPointF(k, -o), QPointF(o, -k), QPointF(o, k),
                                      QPointF(k, o), QPointF(-k, o), QPointF(-o, k), QPointF(-o, -k)]))
         if self.obj.hier:
-            # a hierarchical state: three circles, blue (HDS TripleCircle)
+            # a hierarchical state: three circles, blue (the legacy tool TripleCircle)
             p.setBrush(HIER_FILL)
             p.setPen(QPen(HIER_LINE, 2))
             for k in (1.0, 0.85, 0.7):
@@ -283,12 +290,12 @@ class StateItem(NodeItem):
 
 
 class JunctionItem(NodeItem):
-    """A junction as HDS draws it: a lilac diamond (3300 units) with its symbol in the middle,
+    """A junction as the legacy tool draws it: a lilac diamond (3300 units) with its symbol in the middle,
     "&" (AND), "if" or "case"; a CASE junction shows its expression below."""
 
     def radius(self):
-        """Half size of the diamond (as saved by HDS, else the default)."""
-        s = self.obj.hds.get('shape')
+        """Half size of the diamond (as saved by the legacy tool, else the default)."""
+        s = self.obj.orig.get('shape')
         return (s[2] - s[0]) / 2 if s else JUNCTION_HALF
 
     def boundary(self, angle):
@@ -306,8 +313,8 @@ class JunctionItem(NodeItem):
         return 'case' if self.obj.kind == 'case' else 'if'
 
     def _expr_rect(self) -> QRectF:
-        """Where the CASE expression is: as saved by HDS, else centred under the diamond."""
-        g = self.obj.hds.get('expr')
+        """Where the CASE expression is: as saved by the legacy tool, else centred under the diamond."""
+        g = self.obj.orig.get('expr')
         if g:
             fm = QFontMetricsF(LABEL_BOLD_FONT)
             w = fm.horizontalAdvance(f'CASE: {self.obj.expr}')
@@ -330,7 +337,7 @@ class JunctionItem(NodeItem):
         p.setPen(QPen(Qt.black, 0))
         p.drawPolygon(QPolygonF([QPointF(0, -h), QPointF(h, 0), QPointF(0, h), QPointF(-h, 0)]))
         p.setPen(Qt.black)
-        g = self.obj.hds
+        g = self.obj.orig
         if g.get('symbol'):
             _draw_geo_text(p, g['symbol'], self._symbol(), LABEL_BOLD_FONT)
         else:
@@ -355,12 +362,12 @@ class JunctionItem(NodeItem):
 
 
 class LinkItem(NodeItem):
-    """A link as HDS draws it: a yellow arrow (pentagon) with a short stub on its back, where
+    """A link as the legacy tool draws it: a yellow arrow (pentagon) with a short stub on its back, where
     transitions arrive, and the target state's name in bold on its right."""
 
     def _name_geo(self) -> list:
-        """The target name's place: as saved by HDS, else 250 units right of the arrow."""
-        g = self.obj.hds.get('name')
+        """The target name's place: as saved by the legacy tool, else 250 units right of the arrow."""
+        g = self.obj.orig.get('name')
         if g:
             return g
         x0 = PENT_W / 2 + 250 / 75
@@ -368,12 +375,12 @@ class LinkItem(NodeItem):
                 450 / 75, None, 250 / 75]
 
     def _turn(self) -> QTransform:
-        """The arrow's direction: drawn pointing right, turned as HDS saved it ("ro" 270 is
+        """The arrow's direction: drawn pointing right, turned as the legacy tool saved it ("ro" 270 is
         right; 180 up, 90 left, 0 down, i.e. Qt's clockwise rotation ro - 270)."""
-        return QTransform().rotate(self.obj.hds.get('ro', 270) - 270)
+        return QTransform().rotate(self.obj.orig.get('ro', 270) - 270)
 
     def _name_rect(self) -> QRectF:
-        """Rectangle of the target name (item coordinates), as justified by HDS."""
+        """Rectangle of the target name (item coordinates), as justified by the legacy tool."""
         g = self._name_geo()
         w = QFontMetricsF(LABEL_BOLD_FONT).horizontalAdvance(self.obj.target)
         x0 = g[2] - w if g[4] == 2 else (g[0] + g[2] - w) / 2 if g[4] == 0 else g[0]
@@ -406,7 +413,7 @@ class LinkItem(NodeItem):
 
     def mouseDoubleClickEvent(self, e):
         """Double-click on the target name edits it in place; elsewhere opens the properties."""
-        # the target name is edited in place (HDS); elsewhere the link's properties
+        # the target name is edited in place (as in the legacy tool); elsewhere the link's properties
         if self._name_rect().contains(e.pos()) and not self.fsm_scene.readonly:
             self.fsm_scene.text_edit_requested.emit(self, 'target')
         else:
@@ -414,7 +421,7 @@ class LinkItem(NodeItem):
 
 
 class PointItem(NodeItem):
-    """Clock, reset, enable, interrupt and recovery state points, as HDS draws them: a yellow
+    """Clock, reset, enable, interrupt and recovery state points, as the legacy tool draws them: a yellow
     arrow (pentagon) with a symbol in it (clock edge / reset / enable), the signal name on the
     left; the interrupt point is red with a flash; the recovery point is a red circle with an X."""
 
@@ -477,18 +484,18 @@ class PointItem(NodeItem):
                 p.drawLine(QPointF(x0 + 2.8, -1.4), QPointF(x0 + 6.9, -1.4))
         cap = self.fsm_scene.point_name(kind)
         if cap:
-            # the signal name, right-justified 850 units left of the arrow (HDS)
+            # the signal name, right-justified 850 units left of the arrow (as in the legacy tool)
             p.setPen(Qt.black)
             _draw_geo_text(p, self._name_geo(cap), cap, LABEL_FONT)
         expr = self.fsm_scene.point_caption(kind) if kind in ('clock', 'enable') else ''
         if expr:
-            # the clock / enable expression in a box at the tip, as HDS shows "posedge clk"
+            # the clock / enable expression in a box at the tip, as the legacy tool shows "posedge clk"
             r = self._expr_rect()
             p.setBrush(Qt.white)
             p.setPen(QPen(TRANS_BOX_COLOR, 0))
             p.drawRect(r)
             p.setPen(Qt.black)
-            g = self.obj.hds.get('cond')
+            g = self.obj.orig.get('cond')
             if g:
                 _draw_geo_text(p, g, expr, LABEL_FONT)
             else:
@@ -498,27 +505,27 @@ class PointItem(NodeItem):
             _handles(p, QRectF(x0, -h / 2, w, h))
 
     def _name_geo(self, cap: str) -> list:
-        """The signal name's place: as saved by HDS, else right-justified 850 units left of
+        """The signal name's place: as saved by the legacy tool, else right-justified 850 units left of
         the arrow, on the arrow's middle."""
-        g = self.obj.hds.get('name')
+        g = self.obj.orig.get('name')
         if g:
             return g
         x1 = -PENT_W / 2 - 850 / 75
         return [x1 - QFontMetricsF(LABEL_FONT).horizontalAdvance(cap), -600 / 75, x1, 300 / 75, 2, 100 / 75]
 
     def _expr_rect(self) -> QRectF:
-        """The clock / enable expression box: as saved by HDS, else on the arrow's tip,
+        """The clock / enable expression box: as saved by the legacy tool, else on the arrow's tip,
         1200 units high, wide enough for the text."""
         expr = self.fsm_scene.point_caption(self.obj.kind)
         w = QFontMetricsF(LABEL_FONT).horizontalAdvance(expr) + 200 / 75
-        g = _geo_rect(self.obj.hds.get('cond_box'))
+        g = _geo_rect(self.obj.orig.get('cond_box'))
         if g:
             return QRectF(g.left(), g.top(), max(w, g.width()), g.height())
         return QRectF(PENT_W / 2, -600 / 75, w, 1200 / 75)
 
     def mouseDoubleClickEvent(self, e):
         """Double-click on a clock / enable expression edits it in place; elsewhere the properties."""
-        # the clock / enable expression is edited in place (HDS); elsewhere the properties
+        # the clock / enable expression is edited in place (as in the legacy tool); elsewhere the properties
         if self.obj.kind in ('clock', 'enable') and self.fsm_scene.point_caption(self.obj.kind)                 and self._expr_rect().contains(e.pos()) and not self.fsm_scene.readonly:
             self.fsm_scene.text_edit_requested.emit(self, 'expression')
         else:
@@ -530,6 +537,62 @@ class PointItem(NodeItem):
             return self.scenePos() + QPointF(math.cos(angle) * REC_R, math.sin(angle) * REC_R)
         tip = PENT_W / 2 + (STUB if self.obj.kind == 'interrupt' else 0)
         return self.scenePos() + QPointF(tip, 0)      # transitions leave from the tip
+
+
+# ---------------------------------------------------------------------------
+# Comment texts
+# ---------------------------------------------------------------------------
+COMMENT_COLOR = QColor(0, 0, 128)
+
+
+class CommentTextItem(QGraphicsItem):
+    """Free comment text (Add > Comment Text): plain navy text, framed while selected; moved like
+    the other objects, edited by a double-click."""
+
+    def __init__(self, scene: 'FsmScene', obj):
+        super().__init__()
+        self.fsm_scene = scene
+        self.obj = obj
+        self.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable |
+                      QGraphicsItem.ItemSendsGeometryChanges)
+        self.setPos(obj.x, obj.y)
+        self.setZValue(4)
+
+    def boundingRect(self):
+        fm = QFontMetricsF(TEXT_FONT)
+        lines = (self.obj.text or ' ').splitlines() or [' ']
+        return QRectF(-2, -2, max(fm.horizontalAdvance(t) for t in lines) + 4, fm.height() * len(lines) + 4)
+
+    def paint(self, p: QPainter, opt, widget=None):
+        p.setFont(TEXT_FONT)
+        p.setPen(COMMENT_COLOR)
+        fm = QFontMetricsF(TEXT_FONT)
+        for k, line in enumerate(self.obj.text.splitlines()):
+            p.drawText(QPointF(0, fm.ascent() + k * fm.height()), line)
+        if self.isSelected():
+            p.setPen(QPen(Qt.black, 0, Qt.DashLine))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5))
+
+    def itemChange(self, change, value):
+        """On the grid while dragged (refused when read-only); the model follows the item."""
+        if change == QGraphicsItem.ItemPositionChange:
+            if self.fsm_scene.readonly:
+                return self.pos()
+            return snap_point(value) if self.fsm_scene.mouseGrabberItem() is self else value
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            self.obj.x, self.obj.y = self.pos().x(), self.pos().y()
+        return super().itemChange(change, value)
+
+    def mouseReleaseEvent(self, event):
+        moved = event.buttonDownScenePos(Qt.LeftButton) != event.scenePos()
+        super().mouseReleaseEvent(event)
+        if moved:
+            self.fsm_scene.changed_model.emit()
+
+    def mouseDoubleClickEvent(self, e):
+        if not self.fsm_scene.readonly:
+            self.fsm_scene.comment_edit_requested.emit(self.obj)
 
 
 # ---------------------------------------------------------------------------
@@ -667,21 +730,21 @@ class TransitionLabel(_BoxItem):
 
     def mouseDoubleClickEvent(self, e):
         """Double-click edits the condition or the actions (the part under the cursor) in place."""
-        # As HDS: a double-click on the condition or on the actions edits that text in place
+        # As the legacy tool: a double-click on the condition or on the actions edits that text in place
         if self.fsm_scene.readonly:
             return self.fsm_scene.edit_requested.emit(self.obj)
         field = 'actions' if self.obj.actions.strip() and self.section_at(e.pos().y()) == 1 else 'cond'
         self.fsm_scene.text_edit_requested.emit(self, field)
 
-    def _hds(self) -> dict:
-        """The geometry HDS saved for this box, while its texts are still the ones it was
+    def _orig(self) -> dict:
+        """The geometry the legacy tool saved for this box, while its texts are still the ones it was
         saved with (else HDL Studio lays the box out)."""
-        g = self.obj.hds
+        g = self.obj.orig
         return g if g.get('box_size') and g.get('sig') == [self.obj.cond, self.obj.actions] else {}
 
     def update_size(self):
-        """Size as HDS saved it while the texts are unchanged, else computed."""
-        g = self._hds()
+        """Size as the legacy tool saved it while the texts are unchanged, else computed."""
+        g = self._orig()
         if g:
             self.prepareGeometryChange()
             self._size = QRectF(0, 0, *g['box_size'])
@@ -689,13 +752,13 @@ class TransitionLabel(_BoxItem):
             super().update_size()
 
     def paint(self, p: QPainter, opt, widget=None):
-        """As HDS 2021.1 draws a transition's text: a white box with a blue border, the
-        condition centred, a line, then the actions. With the geometry of an HDS file, each
-        text and the line are where HDS put them. Selected: red border with corner handles."""
+        """As the legacy tool draws a transition's text: a white box with a blue border, the
+        condition centred, a line, then the actions. With the geometry of a legacy file, each
+        text and the line are where the legacy tool put them. Selected: red border with corner handles."""
         secs = self.sections()
         if not secs:
             return
-        g = self._hds()
+        g = self._orig()
         if g:
             r = self._size
             sel = self.isSelected()
@@ -709,7 +772,7 @@ class TransitionLabel(_BoxItem):
                 if key in g and text.strip():
                     x, y = g[key]
                     for k, l in enumerate(_lines(text)):
-                        p.drawText(QPointF(x, y + fm.ascent() + k * HDS_LINE), l)
+                        p.drawText(QPointF(x, y + fm.ascent() + k * TEXT_LINE), l)
             if g.get('line') is not None:
                 p.setPen(QPen(Qt.black, 0))
                 p.drawLine(QPointF(3, g['line']), QPointF(r.width() - 3, g['line']))
@@ -769,7 +832,7 @@ class StateActionsBox(_BoxItem):
 
     def mouseDoubleClickEvent(self, e):
         """Double-click edits the entry / state / exit actions under the cursor in place."""
-        # the entry / state / exit actions under the cursor are edited in place (HDS)
+        # the entry / state / exit actions under the cursor are edited in place (as in the legacy tool)
         if self.fsm_scene.readonly:
             return self.fsm_scene.edit_requested.emit(self.obj)
         secs = self.sections()
@@ -784,23 +847,23 @@ class StateActionsBox(_BoxItem):
         return [(tag, _lines(t)) for tag, t in (('en', s.entry_actions), ('', s.in_actions),
                                                 ('ex', s.exit_actions)) if t.strip()]
 
-    def _hds(self) -> dict:
-        """The geometry HDS saved for the box, while the three action texts are unchanged."""
+    def _orig(self) -> dict:
+        """The geometry the legacy tool saved for the box, while the three action texts are unchanged."""
         s = self.obj
-        g = s.hds
+        g = s.orig
         return g if g.get('act_size') and g.get('sig') == [s.entry_actions, s.in_actions, s.exit_actions] else {}
 
     def update_size(self):
-        """Size as HDS saved it while the texts are unchanged, else computed."""
-        g = self._hds()
+        """Size as the legacy tool saved it while the texts are unchanged, else computed."""
+        g = self._orig()
         if g:
             self.prepareGeometryChange()
             self._size = QRectF(0, 0, *g['act_size'])
         else:
             super().update_size()
 
-    def _paint_hds(self, p: QPainter, g: dict):
-        """The action block exactly as HDS saved it: with entry / exit actions a white box with
+    def _paint_orig(self, p: QPainter, g: dict):
+        """The action block exactly as the legacy tool saved it: with entry / exit actions a white box with
         a light blue border (width 2), the lines between the parts where they were, and the
         blue triangles on the left of the entry (pointing in) and exit (pointing out) texts;
         state actions alone: the text only."""
@@ -822,10 +885,10 @@ class StateActionsBox(_BoxItem):
             x, y = g[key]
             p.setPen(Qt.black)
             for k, l in enumerate(_lines(text)):
-                p.drawText(QPointF(x + 1, y + fm.ascent() + k * HDS_LINE), l)
+                p.drawText(QPointF(x + 1, y + fm.ascent() + k * TEXT_LINE), l)
             if key != 'in':
                 # the triangle just outside the box, at the first line of the text
-                cy = y + HDS_LINE / 2
+                cy = y + TEXT_LINE / 2
                 t = 350 / 75
                 tri = ([QPointF(-t, cy - t / 2), QPointF(0, cy), QPointF(-t, cy + t / 2)] if key == 'entry' else
                        [QPointF(0, cy - t / 2), QPointF(-t, cy), QPointF(0, cy + t / 2)])
@@ -836,16 +899,16 @@ class StateActionsBox(_BoxItem):
             p.drawRect(r)
 
     def paint(self, p: QPainter, opt, widget=None):
-        """As HDS 2021.1 draws a state's actions. State actions alone: plain black text next to
+        """As the legacy tool draws a state's actions. State actions alone: plain black text next to
         the state. With entry and / or exit actions: one light blue cell per kind (entry, state,
         exit, in that order), the entry and exit cells marked by a small tick on their left.
         Selected: a red border."""
         secs = self.sections()
         if not secs:
             return
-        g = self._hds()
+        g = self._orig()
         if g:
-            return self._paint_hds(p, g)
+            return self._paint_orig(p, g)
         fm = _fm()
         p.setFont(TEXT_FONT)
         cells = any(tag for tag, _ in secs)
@@ -862,7 +925,7 @@ class StateActionsBox(_BoxItem):
                 p.setPen(QPen(ACTION_CELL, 0)); p.setBrush(Qt.NoBrush)
                 p.drawRect(QRectF(14, top, w - 14, y - top + 1))
                 if tag:
-                    # the tick of an entry / exit cell (HDS)
+                    # the tick of an entry / exit cell (as in the legacy tool)
                     p.setPen(QPen(STATE_LINE, 0))
                     my = top + fm.height() / 2 + 1
                     p.drawLine(QPointF(7, my - 2), QPointF(11, my))
@@ -874,19 +937,19 @@ class StateActionsBox(_BoxItem):
 
 
 # ---------------------------------------------------------------------------
-# Declaration blocks (top of an HDS state diagram)
+# Declaration blocks (top of a legacy state diagram)
 # ---------------------------------------------------------------------------
 DECL_TITLE = QFont('Arial', 8, QFont.Bold)
 DECL_TEXT = QFont('Arial', 8)
 DECL_MONO = QFont('Courier New', 8)
-DECL_COLOR = QColor(0, 0, 0)            # the user text of the blocks: black (HDS)
-# where HDS puts the titles of a new diagram, in HDS units from the Global Actions title
+DECL_COLOR = QColor(0, 0, 0)            # the user text of the blocks: black (as in the legacy tool)
+# where the legacy tool puts the titles of a new diagram, in legacy units from the Global Actions title
 _DECL_OFFSETS = {'global': (0, 0), 'concurrent': (9200, 0), 'module': (22100, 0), 'status': (35600, 0),
                  'statereg': (44300, 0), 'compdir': (0, 4000)}
 
 
 class DeclBlockItem(QGraphicsItem):
-    """One of the text blocks HDS draws at the top of a state diagram: Global Actions (Pre /
+    """One of the text blocks the legacy tool draws at the top of a state diagram: Global Actions (Pre /
     Post Actions), Concurrent Statements, Module Declarations (Pre / Post Decls), Signal Status
     (the outputs and locals with their default, reset and scheme), State Register Statements,
     Compiler Directives (Pre- / Post- / End-module directives). Each has a bold title and its
@@ -907,10 +970,10 @@ class DeclBlockItem(QGraphicsItem):
         self.setPos(QPointF(*self._place()))
 
     def _place(self) -> tuple[float, float]:
-        """Saved place of the block, else HDS's default layout above the diagram content."""
+        """Saved place of the block, else the legacy tool's default layout above the diagram content."""
         if self.key in self.view.decl_pos:
             return tuple(self.view.decl_pos[self.key])
-        # no place yet (a diagram made by HDL Studio): HDS's layout, above the diagram content
+        # no place yet (a diagram made by HDL Studio): the legacy tool's layout, above the diagram content
         m = self.fsm_scene.machine
         nodes = list(m.states) + list(m.points) + list(m.junctions) + list(m.links)
         x0 = min((n.x for n in nodes), default=0.0) - 120
@@ -1020,7 +1083,7 @@ class DeclBlockItem(QGraphicsItem):
         """Double-click edits the text under the cursor in place; Signal Status (no text of its own)
         opens the Signals Table.
         """
-        # a text block is edited in place (HDS); the Signal Status is edited in the table
+        # a text block is edited in place (as in the legacy tool); the Signal Status is edited in the table
         field = self.field_at(e.pos().y())
         if field and not self.fsm_scene.readonly:
             self.fsm_scene.text_edit_requested.emit(self, field)
@@ -1079,8 +1142,8 @@ class TransitionItem(QGraphicsPathItem):
         end = b.boundary(t.end_angle) if t.end_angle is not None else b.anchor(last)
         return start, end
 
-    def hds_geometry(self) -> dict:
-        """What an HDS file needs of the line as drawn (hds.export_sm): its points
+    def sm_geometry(self) -> dict:
+        """What a legacy file needs of the line as drawn (formats.export_sm): its points
         (start, route points, end) and the centre of its priority circle, scene units."""
         s, e = self.ends
         return {'pts': [(s.x(), s.y()), *[tuple(p) for p in self.obj.points], (e.x(), e.y())],
@@ -1088,7 +1151,7 @@ class TransitionItem(QGraphicsPathItem):
 
     def refresh(self):
         """Recompute the whole drawing from the model: path (a loop on the same state, a curve for a
-        pair of opposite transitions, else the spline), arrow, priority circle position (exact HDS
+        pair of opposite transitions, else the spline), arrow, priority circle position (exact the legacy tool
         place while the line is unchanged, else the saved fraction of the length) and label place.
         Call after anything the line depends on has changed.
         """
@@ -1117,7 +1180,7 @@ class TransitionItem(QGraphicsPathItem):
                 path.quadTo(ctrl, end)
                 before, mid = ctrl, (start + end) / 2 + off / 2
             else:
-                # HDS draws a transition as a spline: a smooth curve through its route points
+                # The legacy tool draws a transition as a spline: a smooth curve through its route points
                 _spline(path, [start] + pts + [end])
                 before = pts[-1] if pts else start
                 seg = [start] + pts + [end]
@@ -1128,17 +1191,17 @@ class TransitionItem(QGraphicsPathItem):
         ang = math.atan2(end.y() - before.y(), end.x() - before.x())
         self.arrow = QPolygonF([end, end - QPointF(math.cos(ang - 0.4) * 8, math.sin(ang - 0.4) * 8),
                                 end - QPointF(math.cos(ang + 0.4) * 8, math.sin(ang + 0.4) * 8)])
-        # priority circle: shown as the HDS file says (else when the source has several
-        # transitions), where it was (HDS keeps it at a percentage of the line), else a little
+        # priority circle: shown as the legacy file says (else when the source has several
+        # transitions), where it was (the legacy tool keeps it at a percentage of the line), else a little
         # way along the first segment
-        self.show_prio = t.hds['prio_shown'] if 'prio_shown' in t.hds else len(sc.machine.outgoing(t.src)) > 1
-        exact = 'prio_center' in t.hds and t.hds.get('geo_sig') == _geo_sig(t, sc.machine)
-        if t.prio_at is None and 'prio_center' in t.hds:
+        self.show_prio = t.orig['prio_shown'] if 'prio_shown' in t.orig else len(sc.machine.outgoing(t.src)) > 1
+        exact = 'prio_center' in t.orig and t.orig.get('geo_sig') == _geo_sig(t, sc.machine)
+        if t.prio_at is None and 'prio_center' in t.orig:
             self.setPath(path)
-            t.prio_at = self._fraction_at(QPointF(*t.hds['prio_center']))[0]
+            t.prio_at = self._fraction_at(QPointF(*t.orig['prio_center']))[0]
         if exact:
-            # the line is still as HDS saved it: its priority circle exactly where HDS had it
-            self.prio_pos = QPointF(*t.hds['prio_center'])
+            # the line is still as the legacy tool saved it: its priority circle exactly where the legacy tool had it
+            self.prio_pos = QPointF(*t.orig['prio_center'])
         elif t.prio_at is not None:
             self.prio_pos = path.pointAtPercent(path.percentAtLength(path.length() * min(1.0, max(0.0, t.prio_at))))
         else:
@@ -1192,15 +1255,15 @@ class TransitionItem(QGraphicsPathItem):
     def paint(self, p: QPainter, opt, widget=None):
         """Draw the line, the arrow head, the priority circle and, when selected, the handles."""
         p.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(Qt.black, 1.1)        # HDS: a selected transition keeps its colour, it gets handles
+        pen = QPen(Qt.black, 1.1)        # The legacy tool: a selected transition keeps its colour, it gets handles
         p.setPen(pen)
         p.setBrush(Qt.NoBrush)
         p.drawPath(self.path())
         p.setBrush(pen.color())
         p.drawPolygon(self.arrow)
         if self.show_prio:
-            # HDS: a white circle (radius 651, or as saved) with the priority in it
-            pr = self.obj.hds.get('prio_r', PRIO_R)
+            # The legacy tool: a white circle (radius 651, or as saved) with the priority in it
+            pr = self.obj.orig.get('prio_r', PRIO_R)
             p.setBrush(Qt.white)
             p.setPen(QPen(Qt.black, 0))
             p.drawEllipse(self.prio_pos, pr, pr)
@@ -1249,7 +1312,7 @@ class TransitionItem(QGraphicsPathItem):
         if e.button() != Qt.LeftButton or self.fsm_scene.readonly or self.fsm_scene.mode != 'select':
             return
         hit = self._hit(e.scenePos())
-        # As HDS 2021.1: only the handles move (route points, the two ends, the priority);
+        # As the legacy tool: only the handles move (route points, the two ends, the priority);
         # a drag on the line itself does nothing. Route points are added from the right-click
         # menu (Add Route).
         self._inserted = False
@@ -1300,13 +1363,13 @@ class TransitionItem(QGraphicsPathItem):
     def itemChange(self, change, value):
         """A selected transition is raised above the states (its end handles lie on their edges)."""
         # a selected transition comes above the states: its end handles lie on a state edge
-        # and must take the press (as in HDS) rather than the state under them
+        # and must take the press (as in the legacy tool) rather than the state under them
         if change == QGraphicsItem.ItemSelectedHasChanged:
             self.setZValue(5 if value else 1)
         return super().itemChange(change, value)
 
     def _reconnect(self, which: int, pos: QPointF) -> bool:
-        """An end handle dropped on another node moves that end there (HDS: the transition is
+        """An end handle dropped on another node moves that end there (the legacy tool: the transition is
         reconnected, drawn straight again with its text in the middle). The start can go to
         anything a transition may start from, the end to anything it may end on."""
         sc = self.fsm_scene
@@ -1329,7 +1392,7 @@ class TransitionItem(QGraphicsPathItem):
         return True
 
     def contextMenuEvent(self, e):
-        """The HDS transition menu: Add Route / Remove Route / Remove All Routes / Reverse
+        """The legacy transition menu: Add Route / Remove Route / Remove All Routes / Reverse
         Direction, Cut / Copy / Paste / Paste Special / Delete, Appearance... / Show Text /
         Object Properties... (entries HDL Studio does not have yet are disabled)."""
         from PySide6.QtWidgets import QMenu
@@ -1411,14 +1474,21 @@ class FsmScene(QGraphicsScene):
     decl_edit_requested = Signal(str)            # a declaration block (DeclBlockItem.KEYS)
     text_edit_requested = Signal(object, str)    # (item, field): edit a text in place
     popup_requested = Signal(object, object)     # (item or None for the diagram, QPoint on screen)
+    comment_add_requested = Signal(QPointF)      # Add > Comment Text: a click at this scene point
+    open_down_requested = Signal(object)         # a hierarchical state (model State) double-clicked
+    panel_add_requested = Signal(QPointF)        # Add > Panel: a click at this scene point
+    comment_edit_requested = Signal(object)      # a comment text (model Comment) double-clicked
     MODES = ('select', 'state', 'transition', 'junction_if', 'junction_case', 'link',
-             'interrupt', 'recovery', 'reset', 'clock')
+             'interrupt', 'recovery', 'reset', 'clock', 'enable', 'wait_state', 'hier_state', 'comment',
+             'panel')
 
     def __init__(self, parent=None):
         """An empty scene; load() fills it."""
         super().__init__(parent)
         self.machine = Machine()
         self.view_model = None
+        self.level = ''          # id of the hierarchical state whose inside is shown ('' = top level)
+        self.panels_locked = False                   # Diagram > Panels > Protect All Panels
         self.mode = 'select'
         self.readonly = False
         self.items_by_id: dict[str, NodeItem] = {}
@@ -1426,14 +1496,15 @@ class FsmScene(QGraphicsScene):
         self.action_boxes: dict[str, StateActionsBox] = {}
         self._pending_src: NodeItem | None = None
         self._rubber: QGraphicsPathItem | None = None
-        self.setBackgroundBrush(QColor(255, 255, 255))      # HDS canvas: pure white
+        self.setBackgroundBrush(QColor(255, 255, 255))      # legacy canvas: pure white
         self.leaders: dict[int, object] = {}
         self.selectionChanged.connect(self.update_all_leaders)
 
     # -- building -----------------------------------------------------------
     def load(self, view_model, machine: Machine):
-        """Rebuild every item from `machine` (top level only: the content of hierarchical states
-        is not drawn here) and the declaration blocks of `view_model`.
+        """Rebuild every item from `machine` at the level shown (`self.level`: the top level, or the
+        inside of one hierarchical state) and, at the top level, the declaration blocks of
+        `view_model` and the comment texts.
         """
         # forget the old items first: clear() deletes them and emits selectionChanged, whose
         # update_all_leaders would otherwise reach the deleted action boxes
@@ -1445,25 +1516,37 @@ class FsmScene(QGraphicsScene):
         self._state_ghost = None                    # removed by clear()
         self.view_model = view_model
         self.machine = machine
-        # the top level of the machine: what is inside a hierarchical state is drawn in its own
-        # diagram (HDS), so it is left out here, with the transitions between its nodes
+        # one level of the machine: what is inside a hierarchical state is drawn in its own
+        # diagram (as in the legacy tool), so only the nodes of this level are here, with the
+        # transitions between them
+        if self.level and not any(s.id == self.level and s.hier for s in machine.states):
+            self.level = ''                     # that hierarchical state is gone (undo, delete)
+        lv = self.level
         for s in machine.states:
-            if not s.parent:
+            if s.parent == lv:
                 self._add_node_item(StateItem(self, s))
         for j in machine.junctions:
-            if not j.parent:
+            if j.parent == lv:
                 self._add_node_item(JunctionItem(self, j))
         for l in machine.links:
-            if not l.parent:
+            if l.parent == lv:
                 self._add_node_item(LinkItem(self, l))
         for pt in machine.points:
-            if not pt.parent:
+            if pt.parent == lv:
                 self._add_node_item(PointItem(self, pt))
         for t in machine.transitions:
             self._add_transition_item(t)
-        if view_model is not None:
+        for c in (machine.comments if not lv else []):
+            item = CommentTextItem(self, c)
+            self.addItem(item)
+            self.items_by_id[c.id] = item
+        from .panels import PanelItem
+        for pn in (machine.panels if not lv else []):
+            self.addItem(PanelItem(pn, self.changed_model.emit, snap_point,
+                                   lambda: self.readonly or self.panels_locked))
+        if view_model is not None and not lv:
             for key in DeclBlockItem.KEYS:
-                if key not in view_model.decl_hidden:     # hidden in HDS: not drawn either
+                if key not in view_model.decl_hidden:     # hidden in the legacy tool: not drawn either
                     self.addItem(DeclBlockItem(self, view_model, key))
         r = self.itemsBoundingRect().adjusted(-400, -400, 400, 400)
         self.setSceneRect(r)
@@ -1509,7 +1592,7 @@ class FsmScene(QGraphicsScene):
             self.leaders = {}
         line = self.leaders.get(id(box))
         target = box.owner_point() if box.scene() is self else None
-        # as HDS: the line from a text box to its state / transition shows only while the box
+        # as the legacy tool: the line from a text box to its state / transition shows only while the box
         # is selected
         if target is None or not box.isVisible() or not box.sections() or not box.isSelected():
             if line is not None:
@@ -1552,7 +1635,7 @@ class FsmScene(QGraphicsScene):
         return any(o.src == t.dst and o.dst == t.src for o in self.machine.transitions)
 
     def point_name(self, kind: str) -> str:
-        """Name of the signal of a clock / reset / enable point (shown on its left, as HDS)."""
+        """Name of the signal of a clock / reset / enable point (shown on its left, as the legacy tool)."""
         vm = self.view_model
         if vm is None or kind not in ('clock', 'reset', 'enable'):
             return ''
@@ -1592,10 +1675,10 @@ class FsmScene(QGraphicsScene):
         self.leaders = {}
         self.update_all_leaders()
 
-    def hds_geometry(self, tid: str) -> dict | None:
-        """The drawn line of a transition, for writing an HDS file (None: not on this scene)."""
+    def sm_geometry(self, tid: str) -> dict | None:
+        """The drawn line of a transition, for writing a legacy file (None: not on this scene)."""
         it = self.trans_items.get(tid)
-        return it.hds_geometry() if it is not None and getattr(it, 'ends', None) else None
+        return it.sm_geometry() if it is not None and getattr(it, 'ends', None) else None
 
     def refresh_all(self):
         """Redraw every node, action box and transition (after a change that may affect all of them)."""
@@ -1660,35 +1743,43 @@ class FsmScene(QGraphicsScene):
             return super().mousePressEvent(event)
         pos = snap_point(event.scenePos())
         m = self.machine
-        if self.mode == 'state':
-            s = State(id=m.new_id('s'), name=self._unique_state_name(), x=pos.x(), y=pos.y())
+        if self.mode == 'comment':
+            self.comment_add_requested.emit(pos)
+            return
+        if self.mode == 'panel':
+            self.panel_add_requested.emit(pos)
+            return
+        if self.mode in ('state', 'wait_state', 'hier_state'):
+            s = State(id=m.new_id('s'), name=self._unique_state_name(), x=pos.x(), y=pos.y(),
+                      is_wait=self.mode == 'wait_state', wait='wait 1' if self.mode == 'wait_state' else '',
+                      hier=self.mode == 'hier_state', parent=self.level)
             m.states.append(s)
             item = StateItem(self, s)
             self._add_node_item(item)
-            # as HDS 2021.1: the new state is selected (Add State stays active)
+            # as the legacy tool: the new state is selected (Add State stays active)
             self.clearSelection()
             item.setSelected(True)
         elif self.mode in ('junction_if', 'junction_case'):
             kind = 'case' if self.mode == 'junction_case' else 'if'
             j = Junction(id=m.new_id('j'), kind=kind, expr='expr' if kind == 'case' else '', x=pos.x(), y=pos.y(),
-                         symbol=getattr(self.view_model, 'default_junction_symbol', ''))
+                         symbol=getattr(self.view_model, 'default_junction_symbol', ''), parent=self.level)
             m.junctions.append(j)
             item = JunctionItem(self, j)
             self._add_node_item(item)
-            self.clearSelection(); item.setSelected(True)       # as HDS: the new junction is selected
+            self.clearSelection(); item.setSelected(True)       # as the legacy tool: the new junction is selected
         elif self.mode == 'link':
-            # As HDS 2021.1: no question asked, the link shows "Link" until its target state is
+            # As the legacy tool: no question asked, the link shows "Link" until its target state is
             # set (Object Properties / double-click); the cursor is on its stub tip
-            lk = Link(id=m.new_id('l'), target='Link', x=pos.x() + LINK_TIP, y=pos.y())
+            lk = Link(id=m.new_id('l'), target='Link', x=pos.x() + LINK_TIP, y=pos.y(), parent=self.level)
             m.links.append(lk)
             item = LinkItem(self, lk)
             self._add_node_item(item)
             self.clearSelection(); item.setSelected(True)
-        elif self.mode in ('interrupt', 'recovery', 'reset', 'clock'):
-            if self.mode in ('recovery', 'reset', 'clock') and m.point(self.mode) is not None:
+        elif self.mode in ('interrupt', 'recovery', 'reset', 'clock', 'enable'):
+            if self.mode in ('recovery', 'reset', 'clock', 'enable') and m.point(self.mode) is not None:
                 self.message.emit(f'Only one {self.mode} point per machine')
                 return
-            pt = Point(id=m.new_id('p'), kind=self.mode, x=pos.x(), y=pos.y())
+            pt = Point(id=m.new_id('p'), kind=self.mode, x=pos.x(), y=pos.y(), parent=self.level)
             m.points.append(pt)
             self._add_node_item(PointItem(self, pt))
         elif self.mode == 'transition':
@@ -1704,7 +1795,7 @@ class FsmScene(QGraphicsScene):
                 self._pending_src = node
                 self._pending_pts: list[list[float]] = []
                 self._rubber = QGraphicsPathItem()
-                self._rubber.setPen(QPen(Qt.black, 0))      # HDS: a thin solid line
+                self._rubber.setPen(QPen(Qt.black, 0))      # The legacy tool: a thin solid line
                 self.addItem(self._rubber)
                 return
             src, pts = self._pending_src, list(self._pending_pts)
@@ -1720,7 +1811,7 @@ class FsmScene(QGraphicsScene):
             self.clearSelection()
             self.trans_items[t.id].setSelected(True)
             self.changed_model.emit()
-            # as HDS 2021.1: the condition is typed in place right away
+            # as the legacy tool: the condition is typed in place right away
             self.condition_edit_requested.emit(t)
             return
         self.changed_model.emit()
@@ -1734,7 +1825,7 @@ class FsmScene(QGraphicsScene):
 
     def _update_state_ghost(self, pos: QPointF):
         """While adding a state, a junction or a link, its outline (no fill) follows the cursor
-        on the grid, as HDS shows it: a circle / diamond centred on the cursor, a link with the
+        on the grid, as the legacy tool shows it: a circle / diamond centred on the cursor, a link with the
         tip of its stub on it. Not part of the model; set_mode() removes it."""
         kind = self.mode if self.mode in ('state', 'junction_if', 'junction_case', 'link') else None
         if kind == 'junction_case':
@@ -1780,11 +1871,11 @@ class FsmScene(QGraphicsScene):
         super().mouseMoveEvent(event)
 
     def _unique_state_name(self) -> str:
-        """Name of a new state, as HDS 2021.1 names it from the diagram's default-state template:
-          - a template ending in a number ("s0", the template of a new HDS diagram): its prefix
+        """Name of a new state, as legacy names it from the diagram's default-state template:
+          - a template ending in a number ("s0", the template of a new legacy diagram): its prefix
             and the smallest free number from there ("s0", "s1", ...; "s0" again once renamed);
           - another template ("ST_"): the template itself, then "ST_1", "ST_2", ...;
-          - no template (diagrams made by HDL Studio): as a new HDS diagram, "s0", "s1", ..."""
+          - no template (diagrams made by HDL Studio): as a new legacy diagram, "s0", "s1", ..."""
         import re
         names = {s.name for s in self.machine.states}
         base = getattr(getattr(self, 'view_model', None), 'default_state_name', '') or 's0'
@@ -1804,7 +1895,7 @@ class FsmScene(QGraphicsScene):
     def contextMenuEvent(self, e):
         """Right click. A transition shows its own menu (TransitionItem.contextMenuEvent); on any
         other object, the object is selected (alone, unless it already is) and popup_requested
-        asks the window for that object's HDS popup menu; on open space, the diagram's menu."""
+        asks the window for that object's legacy popup menu; on open space, the diagram's menu."""
         super().contextMenuEvent(e)
         if e.isAccepted():
             return
@@ -1840,7 +1931,21 @@ class FsmScene(QGraphicsScene):
                 self.trans_items.pop(it.obj.id, None)
             elif isinstance(it, NodeItem):
                 ids.add(it.obj.id)
+            elif isinstance(it, CommentTextItem):
+                m.comments = [c for c in m.comments if c.id != it.obj.id]
+                self.items_by_id.pop(it.obj.id, None)
+                self.removeItem(it)
+            elif type(it).__name__ == 'PanelItem':
+                m.panels = [p for p in m.panels if p.id != it.obj.id]
+                self.removeItem(it)
         if ids:
+            # what is inside a deleted hierarchical state goes with it
+            grew = True
+            while grew:
+                inner = {n.id for coll in (m.states, m.junctions, m.links, m.points) for n in coll
+                         if n.parent in ids} - ids
+                ids |= inner
+                grew = bool(inner)
             for t in [t for t in m.transitions if t.src in ids or t.dst in ids]:
                 m.transitions.remove(t)
                 if t.id in self.trans_items:
@@ -1884,7 +1989,7 @@ class FsmGraphicsView(QGraphicsView):
     nudged = Signal()               # selection moved with Ctrl+arrow
 
     def __init__(self, scene: QGraphicsScene, parent=None):
-        """A view on `scene` with rubber-band selection, zoom under the mouse and the HDS grid."""
+        """A view on `scene` with rubber-band selection, zoom under the mouse and the legacy grid."""
         super().__init__(scene, parent)
         self.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
         self.setDragMode(QGraphicsView.RubberBandDrag)
@@ -1940,7 +2045,7 @@ class FsmGraphicsView(QGraphicsView):
         step = self.grid
         while step * self.transform().m11() < 6:      # keep the dots apart when zoomed out
             step *= 2
-        p.setPen(QPen(QColor(103, 103, 103), 0))      # HDS grid dots: one dark grey pixel
+        p.setPen(QPen(QColor(103, 103, 103), 0))      # legacy grid dots: one dark grey pixel
         x0 = math.floor(rect.left() / step) * step
         y0 = math.floor(rect.top() / step) * step
         nx, ny = int((rect.right() - x0) / step) + 2, int((rect.bottom() - y0) / step) + 2

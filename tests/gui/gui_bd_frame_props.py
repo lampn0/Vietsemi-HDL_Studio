@@ -7,7 +7,7 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QPixmap, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu
-from hds.import_bd import import_bd
+from formats.import_bd import import_bd
 from gui import bd_editor, bd_dialogs
 from codegen.bd_codegen import generate_bd
 
@@ -49,7 +49,7 @@ ok('click on the dashed border selects the frame', fr_item.isSelected())
 sc.context_requested.emit(fr_item, vp.mapToGlobal(border), QPointF(fr.x + fr.w / 2, fr.y))
 bd_editor.QMenu = QMenu
 print('  menu:', captured[0] if captured else None)
-ok('frame popup as in HDS', captured and captured[0] == ['Cut', 'Copy', 'Paste', 'Delete', '-', 'Appearance...', '-',
+ok('frame popup as in the legacy tool', captured and captured[0] == ['Cut', 'Copy', 'Paste', 'Delete', '-', 'Appearance...', '-',
                                                         'Object Properties...'])
 
 # Object Properties dialog: change range and label, apply

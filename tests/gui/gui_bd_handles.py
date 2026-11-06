@@ -7,7 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPixmap, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from hds.import_bd import import_bd
+from formats.import_bd import import_bd
 from gui import bd_editor
 from gui.diagram import GRID
 

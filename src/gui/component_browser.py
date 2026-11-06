@@ -1,7 +1,7 @@
-"""Component Browser: the small floating window HDS 2021.1 opens on Add > Component (F3).
+"""Component Browser: the small floating window the legacy tool opens on Add > Component (F3).
 
 It lists the libraries of the project and their design units (the diagram's own library first
-and expanded). As in HDS a component is instantiated by dragging a unit onto a block diagram;
+and expanded). As in the legacy tool a component is instantiated by dragging a unit onto a block diagram;
 the hint at the bottom says so. The drag carries "library/unit" under MIME_TYPE; BdScene
 accepts it and the editor places the component where it is dropped.
 """

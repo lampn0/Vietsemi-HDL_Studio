@@ -27,22 +27,21 @@ python bin/hdlstudio.py [project.hdp] [--new]
 python bin/fsm_editor.py [file.sm | file.fsm.json]
 ```
 
-Projects use environment variables such as `$HDS_TEAM_HOME`: set them as for HDS before
-starting the tool.
+Projects use environment variables in their paths: set them before starting the tool.
 
 ## 2. Repository layout
 
-The layout follows the HDS installation (`bin`, `docs`, `examples`, `resources`, libraries):
+The top-level folders:
 
 | Folder | Holds |
 |---|---|
 | `bin/` | launchers: `hdlstudio.py` (Design Manager), `fsm_editor.py`, and shell wrappers |
 | `src/` | the application code; top-level modules and sub-packages (see [architecture.md](architecture.md)) |
-| `libs/` | HDL libraries shipped with the tool, in the HDS library layout (`<lib>/hdl`, `<lib>/hds`) |
+| `libs/` | HDL libraries shipped with the tool, in the usual library layout |
 | `resources/` | images (screenshots), drawings (diagrams of the docs), scripts (packaging) |
-| `examples/` | example HDS projects (`.hdp` + libraries) to try the tool on |
-| `tests/` | unit tests, GUI tests, comparisons with HDS (see `tests/README.md`) |
-| `docs/` | requirements, design, file formats, HDS observations, guides |
+| `examples/` | example projects (`.hdp` + libraries) to try the tool on |
+| `tests/` | unit tests and GUI tests (see `tests/README.md`) |
+| `docs/` | requirements, design, code generation rules, guides |
 
 Not in git (see `.gitignore`): `.venv/`, `build/`, `dist/`, release archives, test output.
 
@@ -51,11 +50,10 @@ Not in git (see `.gitignore`): `.venv/`, `build/`, `dist/`, release archives, te
 * **Comments and docstrings in English.** Every module, class and function has a docstring
   saying what it is for (and, for the complex ones, how it works); non-obvious blocks have a
   comment saying why. Keep them true when changing the code.
-* **Follow HDS.** When HDS behaves in a particular way, write the behaviour down where it is
-  implemented ("as HDS 2021.1 does: ...") and, for anything observed on the real tool, in
-  [hds-observations.md](hds-observations.md).
-* **Generated text is a contract.** Any change in `codegen/` or `hds/export_*` must keep the
-  comparison tests passing (generated HDL identical to HDS's, files written back byte for byte
+* **Follow the legacy tool.** When the legacy tool behaves in a particular way, write the
+  behaviour down where it is implemented ("as the legacy tool does: ...").
+* **Generated text is a contract.** Any change in `codegen/` or `formats/export_*` must keep the
+  comparison tests passing (generated HDL identical to the legacy tool's, files written back byte for byte
   when unchanged).
 * **No Qt below `gui/`.** The model, readers / writers, generators and project code must stay
   usable from scripts.
@@ -73,12 +71,10 @@ what each covers and the environment variables.
 ```
 python -m unittest discover -s tests          # unit tests (seconds)
 python tests/gui/run_all.py                    # GUI tests, real windows: leave mouse and keyboard alone
-python tests/hds_compare/compare.py            # generated HDL vs HDS 2024.2 (needs reference/)
-python tests/hds_sync/sync_fsm.py              # HDL Studio -> HDS 2021.1 round trips (local HDS)
 ```
 
-Several tests read a real HDS project (default `D:\workspace\src`, read only) or the sample
-files of `DHDS_SAMPLES`; tests that write work on temporary copies.
+Several tests read a real project (default `D:\workspace\src`, read only) or the sample
+files of `HDLSTUDIO_SAMPLES`; tests that write work on temporary copies.
 
 ## 5. Packaging
 
@@ -97,4 +93,5 @@ Both build `dist/HDLStudio/` and pack it as `dist/HDLStudio-<version>-<os>-x64.z
 1. Make the change, with docstrings / comments updated.
 2. Run the unit tests, and the GUI tests or comparisons of the area you changed.
 3. Update `docs/` when behaviour, formats or the roadmap change.
-4. Bump `__version__` in `src/version.py` for a release.
+4. Bump `__version__` in `src/version.py` for a release: `YYYY.MM.NNN` (year, month, three-digit
+   build number, e.g. `2026.12.001`). A new `YYYY.MM` gets a new configuration folder, copied from the previous one.

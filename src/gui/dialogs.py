@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 
 from model import ENCODINGS, LANGUAGES, STATE_DECLS
 from prefs import Prefs
+from formats.names import META_DIR
 
 IDENT = re.compile(r'[A-Za-z_][A-Za-z0-9_$]*$')
 LANG_LABEL = {'systemverilog': 'SystemVerilog', 'verilog': 'Verilog 2005'}
@@ -73,7 +74,7 @@ class NewProjectDialog(_Base):
         self.form.addRow('Location (parent folder)', _dir_row(self.folder, self, 'Project location'))
         self.form.addRow('Default library', self.lib)
         self.form.addRow(QLabel('<small>Creates &lt;location&gt;/&lt;name&gt;/&lt;name&gt;.hdp and the default '
-                                'library folders &lt;library&gt;/hdl and &lt;library&gt;/hds.</small>'))
+                                f'library folders &lt;library&gt;/hdl and &lt;library&gt;/{META_DIR}.</small>'))
 
     @property
     def hdp_path(self) -> str:
@@ -107,7 +108,7 @@ class NewLibraryDialog(_Base):
         self.form.addRow('Library name', self.name)
         self.form.addRow('Library folder', _dir_row(self.folder, self, 'Library folder'))
         self.form.addRow('Type', self.type)
-        self.form.addRow(QLabel('<small>HDL files go to &lt;folder&gt;/hdl, graphics to &lt;folder&gt;/hds. '
+        self.form.addRow(QLabel(f'<small>HDL files go to &lt;folder&gt;/hdl, graphics to &lt;folder&gt;/{META_DIR}. '
                                 'The mapping is added to the project .hdp file.</small>'))
 
     def validate(self):
@@ -139,7 +140,7 @@ class NewUnitDialog(_Base):
             self.kind.addItem(label, k)
         self.unit = QLineEdit()
         self.view = QLineEdit('fsm')
-        # language of a graphical view, as the HDS wizard asks it (Verilog 2005 / SystemVerilog)
+        # language of a graphical view, as the legacy wizard asks it (Verilog 2005 / SystemVerilog)
         self.language = QComboBox()
         for lang in LANGUAGES:
             self.language.addItem(LANG_LABEL[lang], lang)

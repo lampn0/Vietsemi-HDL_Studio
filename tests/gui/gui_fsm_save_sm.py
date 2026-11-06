@@ -1,9 +1,10 @@
-"""Save a state diagram from the editor back to its HDS .sm (real window, real save path).
+"""Save a state diagram from the editor back to its legacy .sm (real window, real save path).
 
-    python tests/gui/gui_fsm_save_sm.py path/to/fsm.sm [--keep]
+    python tests/gui/gui_fsm_save_sm.py [path/to/fsm.sm] [--keep]
 
-The .sm is copied to tests/gui/out/save_sm/fsm.sm (unless --keep: then the file itself is
-edited, for opening it in HDS afterwards). In the editor: the state ST_REF_DES (else the
+Without a path it uses gc_control_fsm of the real project (HDLSTUDIO_TEST_SRC, as the other GUI
+tests) and is skipped when that file is not there, so run_all.py can run it. The .sm is copied to tests/gui/out/save_sm/fsm.sm (unless --keep: then the file itself is
+edited, for opening it in the legacy tool afterwards). In the editor: the state ST_REF_DES (else the
 second state) is dragged by the mouse 3 grid steps up, a transition's condition is changed,
 File > Save. The file is read again and checked: the state moved, its transitions' ends
 moved with it, the condition is there, all else unchanged.
@@ -19,9 +20,14 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 app = QApplication(sys.argv[:1])
 from gui.main_window import MainWindow  # noqa: E402
-from hds.import_sm import import_sm  # noqa: E402
+from formats.import_sm import import_sm  # noqa: E402
 
-src = sys.argv[1]
+args = [a for a in sys.argv[1:] if not a.startswith('--')]
+src = args[0] if args else os.path.join(os.environ.get('HDLSTUDIO_TEST_SRC', r'D:\workspace\src'),
+                                        'libs', 'protocol_controller', 'hds', 'gc_control_fsm', 'fsm.sm')
+if not os.path.isfile(src):
+    print(f'SKIP gui_fsm_save_sm: {src} not found (give a .sm or set HDLSTUDIO_TEST_SRC)', flush=True)
+    sys.exit(0)
 if '--keep' in sys.argv:
     path = src
 else:
@@ -68,7 +74,7 @@ QTest.qWait(200)
 moved = (st.x - x0, st.y - y0)
 state_ids = {s.id for s in m.states}
 t = next(t for t in m.transitions if t.cond and t.src in state_ids and t.src != st.id and t.dst != st.id)
-t.cond = t.cond + ' & saved_by_dolphin'
+t.cond = t.cond + ' & saved_by_studio'
 print('save', flush=True)
 win.save_file()
 print('saved', flush=True)
@@ -95,7 +101,7 @@ checks = [
 ]
 bad = 0
 for name, ok in checks:
-    print(('ok  ' if ok else 'FAIL'), name)
+    print(('PASS ' if ok else 'FAIL ') + name, flush=True)
     bad += not ok
 print('file:', path)
 sys.exit(1 if bad else 0)

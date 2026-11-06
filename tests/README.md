@@ -5,10 +5,26 @@ The test scripts put `src/` on the Python path themselves.
 
 | Kind | Command | What it checks | Needs |
 |---|---|---|---|
-| Unit tests | `python -m unittest discover -s tests` | projects, libraries, locks, FSM and block diagram generation | nothing (the golden checks are skipped without the `DHDS_SAMPLES` files) |
+| Unit tests | `python -m unittest discover -s tests` | projects, libraries, locks, FSM and block diagram generation; the editors' menus, toolbars and commands (`test_editors.py`) | nothing (the golden checks are skipped without the `HDLSTUDIO_SAMPLES` files; `test_editors.py` runs Qt without a display) |
 | GUI tests | `python tests/gui/run_all.py` | the real application through the Design Manager and the editors, driven with real mouse and keyboard input | a display, the real project |
-| Generation regression | `python tests/regress_hds_generation.py` | the HDL generated for every block diagram and state machine of a real project against the HDL files kept in that project | the real project |
-| HDS comparison | `python tests/hds_compare/compare.py [fsm\|bd] [name]` | the HDL generated for every view against the HDL that HDS 2024.2 itself generates from the same diagrams | `tests/hds_compare/reference/` (made by `hds_reference.py`) |
+
+## Editor tests (`tests/test_editors.py`)
+
+The state diagram and block diagram editors opened by a Design Manager on a temporary copy of
+`examples/uart_studio`, with Qt's `offscreen` platform (no window appears, the mouse is not
+used) and a temporary configuration folder. The dialogs the commands open are answered by the
+test. They check:
+
+| Class | Covers |
+|---|---|
+| `TestLayout` | Toolbar titles and button order (Standard, State / Block Diagram Tools, HDL Tools, Tasks), every toolbar icon drawn, menu titles in the legacy order, no legacy product names |
+| `TestStateDiagram` | Legacy menu entries and shortcuts (F8, Ctrl+F2), buttons enabled by the selection, Copy / Paste and Align, Find / Replace (links follow a renamed state), Reverse Direction, Change To, concurrent machines and signals, hierarchical states (Open Down / Open Up), comment texts and panels saved in the JSON, Paste from system clipboard, Document And Visualize |
+| `TestBlockDiagram` | Legacy menu entries, Align and Undo, Comment Text, the connectivity table (IBD), Connect By Name, Find, panels saved in the JSON, Open Down then Open Up |
+| `TestEditorCommon` | The Back / Forward window history |
+
+```
+python -m unittest tests.test_editors -v
+```
 
 ## GUI tests (`tests/gui/`)
 
@@ -22,7 +38,7 @@ python tests/gui/run_all.py bd_suite session    # only the files whose name cont
 python tests/gui/gui_bd_suite.py                # one file on its own
 ```
 
-`_env.py` gives every test a temporary copy of part of a real HDS project (the `dynamo_core`
+`_env.py` gives every test a temporary copy of part of a real project (the `dynamo_core`
 block diagram and the whole `protocol_controller` library) and its own configuration folder, so
 a test never writes into the real project or into your preferences. Screenshots go to
 `tests/gui/out/` (not in git).
@@ -34,15 +50,15 @@ Lock files a test leaves (some tests simulate a crash) stay in its temporary cop
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DHDS_TEST_SRC` | `D:\workspace\src` | the real project folder copied from (only read) |
-| `DHDS_TEST_OUT` | `tests/gui/out` | where screenshots go |
-| `DHDS_TEST_TMP` | a new temporary folder | where the project copy and config go (`run_all.py` makes and deletes one per test) |
-| `DHDS_UART_SM` | `examples/uart_hds/uart_lib/hds/uart_tx/fsm.sm` | the HDS-made diagram `gui_fsm_transitions.py` reads |
-| `DHDS_SAMPLES` | `D:/workspace` | folder of `fsm.sm`, `struct.bd` and their golden `.v` files for the unit tests (`test_fsm.py`, `test_project.py`) |
+| `HDLSTUDIO_TEST_SRC` | `D:\workspace\src` | the real project folder copied from (only read) |
+| `HDLSTUDIO_TEST_OUT` | `tests/gui/out` | where screenshots go |
+| `HDLSTUDIO_TEST_TMP` | a new temporary folder | where the project copy and config go (`run_all.py` makes and deletes one per test) |
+| `HDLSTUDIO_UART_SM` | none (the test is skipped) | a legacy `uart_tx` state diagram (`fsm.sm`, states START and DATA) that `gui_fsm_transitions.py` reads |
+| `HDLSTUDIO_SAMPLES` | `D:/workspace` | folder of `fsm.sm`, `struct.bd` and their golden `.v` files for the unit tests (`test_fsm.py`, `test_project.py`) |
 
 | File | Covers |
 |---|---|
-| `gui_bd_suite.py` | Block diagram editing as in HDS: nets and buses (default names `sig0`/`dbus0`, two-click drawing, joining a net, name placement, Change Style, in-place edit, undo, "with a Port"), ports (preview, auto-connection by the port's wire end, unnamed free ports, Change Mode, inout), components (preview, placement, nets from component ports, moving), embedded blocks (Create Embedded View, Text view move/resize, input/output by net direction, Change Mode), save/reload and generated HDL |
+| `gui_bd_suite.py` | Block diagram editing as in the legacy tool: nets and buses (default names `sig0`/`dbus0`, two-click drawing, joining a net, name placement, Change Style, in-place edit, undo, "with a Port"), ports (preview, auto-connection by the port's wire end, unnamed free ports, Change Mode, inout), components (preview, placement, nets from component ports, moving), embedded blocks (Create Embedded View, Text view move/resize, input/output by net direction, Change Mode), save/reload and generated HDL |
 | `gui_bd_add_items.py` | Port preview and attach, new embedded block and its Text view, a net to the block |
 | `gui_bd_component_name.py` | Component name lines: select, drag, double-click edit; undo clears the title `*` |
 | `gui_bd_name_text.py` | The same on the legacy `dynamo_core` diagram, outside the Design Manager |
@@ -58,102 +74,15 @@ Lock files a test leaves (some tests simulate a crash) stay in its temporary cop
 | `gui_bd_component_props.py`, `gui_bd_params.py` | Component popup menus, Object Properties, parameters |
 | `gui_bd_route_modes.py` | PortIO drag routing modes |
 | `gui_canvas_ops.py` | Zoom, pan, view area and other canvas operations of both editors |
+| `gui_editor_toolbars.py` | The legacy toolbars of both editors with real clicks and keys: the four toolbars, Cut / Copy greyed without a selection, Add State from its button, Ctrl+C / Ctrl+V, Edit > Align, Ctrl+F, Add Panel and Comment Text from the toolbar, View > Toolbars |
 | `gui_dm_menu_states.py` | Design Manager menus: which entries are enabled for each selection |
-| `gui_dm_units.py` | Design unit list, default views, double-click |
+| `gui_dm_units.py` | Design unit list, default views, double-click on a unit name |
 | `gui_dm_hierarchy.py` | Design Hierarchy pane (two runs: the hierarchy kept by the session) |
 | `gui_dm_session.py` | Session restore and crash recovery (three runs) |
 | `gui_dm_verilog_options.py` | Options > Verilog dialog and its effect |
 | `gui_fsm_transitions.py` | State diagram transitions: boxes, route points, leaders, declaration blocks |
-| `gui_fsm_machine_props.py [fsm.sm]` | State diagram popup menus (real right clicks) against HDS's, State Machine Properties and Compiler Directives dialogs, their changes saved to the `.sm` (on a copy of gc_control_fsm) |
-| `gui_fsm_save_sm.py fsm.sm [--keep]` | Editor save back to the HDS `.sm`: a state dragged by the mouse, a condition changed, File > Save, the file read again (on a copy unless `--keep`) |
+| `gui_fsm_machine_props.py [fsm.sm]` | State diagram popup menus (real right clicks) against the legacy tool's, State Machine Properties and Compiler Directives dialogs, their changes saved to the `.sm` (on a copy of gc_control_fsm) |
+| `gui_fsm_save_sm.py [fsm.sm] [--keep]` | Editor save back to the legacy `.sm`: a state dragged by the mouse, a condition changed, File > Save, the file read again (on a copy unless `--keep`). Without a path: `gc_control_fsm` of the real project |
 
-## Driving the real HDS (`tests/hds_gui/`)
-
-Tools to study the user interface of the HDS installed on this Windows machine (HDS 2021.1, on
-the sample project `D:/workspace/hds_reference`) and compare HDL Studio with it. One short
-command per step; screenshots go to `tests/hds_gui/out/` (not in git), reference dumps to
-`tests/hds_gui/ref/`.
-
-| Script | Does |
-|---|---|
-| `hds.py` | list HDS windows, screenshot a window or region, dump a menu bar as text, pick a menu entry, click / drag / type. See its docstring. |
-| `dolphin_menus.py` | dump a HDL Studio editor's menus in the same text format |
-| `diff_menus.py` | diff two menu dumps (HDS vs HDL Studio) |
-| `dolphin_shot.py`, `dolphin_net_shot.py`, `dolphin_port_shot.py` | the same views / actions in HDL Studio, for side-by-side screenshots |
-| `dolphin_fsm_region.py fsm.sm name x0 y0 x1 y1 [px/unit]` | a region of a state diagram (HDS units) as HDL Studio draws it, to put next to an HDS screenshot |
-
-Behaviour read from HDS 2021.1 this way (and now followed by HDL Studio): the block diagram menus;
-the window layout (Diagram Browser with the Structure Navigator on the right, one page at a
-time, "Ready" in the status bar, the view saved in the diagram); net drawing (a click in open
-space adds a corner, a double-click ends, a click on an object ends and connects; the new net is
-selected, its name 2000 units from the start); a net name selected on its own; Add Port and Add
-Embedded Block (outline preview, cursor on the port's wire end / the block's bottom-left corner,
-the new object selected, the command stays active).
-
-## Generation regression
-
-`regress_hds_generation.py` opens the whole project (read only), generates every graphical view in
-memory and compares the body (from `// Internal Declarations` or `// State encoding`) with the
-HDL file kept in the project. Those files were written by an older HDS with other options (for
-example `always @ *`), so many differences are expected: the HDS comparison below is the reference.
-
-## HDS comparison (`tests/hds_compare/`)
-
-Compares HDL Studio with what HDS 2024.2 really generates today, with the same diagrams and
-the same user settings.
-
-1. `python tests/hds_compare/hds_reference.py` copies the project to `/tmp/dolphin_hds_check` on
-   the Linux server where HDS is installed (the real project is only read), runs HDS in batch
-   mode to generate every library, and downloads the result to `tests/hds_compare/reference/`.
-   The docstring of the script lists the settings (host, project, HDS home, license, ssh key).
-2. `python tests/hds_compare/compare.py` generates every view with HDL Studio in memory and writes
-   `results/report.md` (one line per view) and `results/diffs/<lib>.<unit>.diff` (HDS = `-`,
-   HDL Studio = `+`) for each view that differs.
-
-`reference/` and `results/` hold the project's design content and are not in git.
-
-Reading and writing `.sm` files (both tools edit the same file):
-
-| Script | Checks |
-|---|---|
-| `roundtrip_files.py` | every .sm / .bd / .sb parsed and written back is byte for byte the same |
-| `fsm_geometry.py fsm.sm ...` | HDL Studio draws each state, action block, transition box and priority circle where the HDS file has it (within 30 HDS units) |
-| `sm_write.py [root ...]` | `export_sm`: every .sm written back unchanged is identical; edits (move, rename, condition, actions, delete) and new objects (states with actions, junction, link, transitions) are read back; a second save changes nothing |
-
-The files written by `export_sm` were opened in HDS 2021.1 (gc_control_fsm): moved / renamed
-objects, changed texts and added objects show as written.
-State of `dti_hbm`: all 20 state machines and 45 of 46 block diagrams identical to HDS. The one
-left, `pb_upsize_wdata`, is the only diagram where HDS does not declare the internal signals in
-alphabetical order (`survey_decl_order.py` and `survey_instance_order.py` survey these orders).
-HDS writes 6 other files empty: it refuses to generate a diagram whose component instances are
-out of date with their symbols ("Use Update Interface"), so there is nothing to compare there.
-
-## Working with both tools on one diagram (`tests/hds_sync/`)
-
-Checks that an edit saved by HDL Studio is what HDS 2021.1 (installed on this machine) reads,
-keeps and generates, through `fsm.sm` and `symbol.sb`. HDS runs in batch mode
-(`hdldesigner.com -tcl`, no window) with its own copy of your HDS preferences
-(`tests/hds_sync/work/home`, `team`), on a scratch project made in `tests/hds_sync/work/`.
-
-```
-python tests/hds_sync/sync_fsm.py               # all HDL Studio -> HDS cases (about 1 minute)
-python tests/hds_sync/sync_fsm.py port delete   # only these cases
-```
-
-| File | Does |
-|---|---|
-| `hds_batch.py` | `run_tcl(hdp, commands)`: one HDS batch run, each Tcl command's result or error |
-| `sync_fsm.py` | per case and base diagram (uart_tx, gc_control_fsm): the edit in the HDL Studio editor window, File > Save path; then HDS opens symbol and diagram, checks their integrity, saves, generates; then: HDS keeps the edit, same HDL (indentation apart: 3 here, 2 on the server), symbol ports |
-| `sync_bd.py read` | HDS -> HDL Studio for block diagrams: a copy of all libraries of the real project; batch HDS opens every struct.bd of protocol_controller, checks its integrity, generates; HDL Studio generates from the same file with this HDS's Verilog style (tab 3, positional parameters); exact compare. Units whose symbols were saved by HDS 2024.2 are reported SKIP (2021.1 cannot read them). Report results/bd_read.md |
-| `sync_bd.py h2d` | HDS -> HDL Studio for block diagrams, edits made by HDS itself in batch with its Block Diagram Tcl API (BDAPI: openBDBatch, setCptGenParam, addCmpInst, addNet, connectCmpPortToNet, addPortIO, addGenParam, createEmbeddedBlock, saveBDBatch, closeBDBatch; no move / rename / delete): HDS saves, checks integrity, generates; HDL Studio reads every edit and generates the same HDL |
-| `hds_do.py` | gentle driver of the HDS window already open (HDS's GUI is single-instance): real clicks only on HDS pixels, keys only while HDS has the focus, several steps in one call. Never force HDS to the front (that crashed HDS once) |
-| `check_h2d.py {tx,gc} <unit dir> <original fsm.sm>` | HDS -> HDL Studio: a diagram edited and saved in HDS's window. tx (uart_tx): state renamed, condition, state actions, state moved, state + transition added, input port added. gc (gc_control_fsm): state renamed (HDS renames the links to it), multi-line condition, transition actions, CASE expression, input port added. Checks: HDL Studio reads every edit, nothing else changed, symbol ports, same HDL as HDS, HDL Studio re-saves it byte for byte, a HDL Studio edit of it opens and generates in HDS |
-
-Cases: unchanged, state moved and renamed, state and transitions added, condition and
-actions changed, state actions changed, transition deleted, statement blocks / directives /
-state signal name, ports added, ports changed and deleted. Results: `results/d2h.md`.
-
-HDS batch notes: a state diagram's view name is `fsm.sm` (not `fsm`); `openGraphicalView`
-opens it read-only: `$doc configure readOnly 0` before `saveGraphicalView` (which then also
-writes `symbol.sb`); `[$doc model] checkDataIntegrity` returns 1 for a sound file.
-
+Tools that compare HDL Studio with the legacy tool itself (driving its window, batch generation,
+round trips through its files) are kept outside this repository.

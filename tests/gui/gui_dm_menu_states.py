@@ -1,4 +1,4 @@
-"""DM menu enable states vs. the HDS screenshots: python menu_state_test.py <hdp> <cfg>"""
+"""DM menu enable states vs. The legacy tool screenshots: python menu_state_test.py <hdp> <cfg>"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _env  # noqa: E402
@@ -28,7 +28,7 @@ def menu(path):
 
 
 def check(path, enabled):
-    """Update the menu states and check that the entry at `path` is enabled / disabled as HDS has it."""
+    """Update the menu states and check that the entry at `path` is enabled / disabled as the legacy tool has it."""
     global fails
     dm._update_menu_states()
     a = menu(path)
@@ -59,8 +59,8 @@ for path, on in [
         (('Edit', 'Select All'), True), (('Edit', 'Hide Hierarchy'), False), (('Edit', 'Cross-Highlight'), False),
         (('Edit', 'Set Design Root'), False), (('Edit', 'Toggle Top Marker'), False),
         (('Edit', 'Set Default View'), False), (('Edit', 'Change Language To', 'SystemVerilog'), False),
-        (('Edit', 'Set Language', "VHDL '87"), False), (('Edit', 'DesignChecker', 'Run analysis'), True),
-        (('Edit', 'DesignChecker', 'Manage Policies/RuleSets'), True), (('Edit', 'Properties...'), False),
+        (('Edit', 'Set Language', "VHDL '87"), False), (('Edit', 'Check'), True),
+        (('Edit', 'Properties...'), False),
         (('View', 'Refresh'), True), (('View', 'Reload Library'), False),
         (('View', 'Change Explorer View', 'Design Units'), False),
         (('View', 'Sub Windows', 'Design Hierarchy'), True), (('View', 'Sub Windows', 'Layout'), False),

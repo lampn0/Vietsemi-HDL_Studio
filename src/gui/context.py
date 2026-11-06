@@ -10,6 +10,7 @@ from prefs import expand_header
 from project import lock
 from bd_model import BlockDiagram
 from model import FsmView
+from formats.names import SETTINGS_SECTION
 from project.generate import generate_unit, load_view, native_path, target_path
 from project.project import DesignUnit, Library, Project, View
 
@@ -88,9 +89,9 @@ class EditorContext:
 
     # -- saving / generating --------------------------------------------------------
     def save(self, model, parent, geometry=None) -> bool:
-        """Save the view. A state diagram read from an HDS .sm is written back to that .sm
-        (so HDS and this tool keep editing the same file); `geometry` gives the lines as
-        drawn (FsmScene.hds_geometry). Other views are saved as this tool's .json."""
+        """Save the view. A state diagram read from a legacy .sm is written back to that .sm
+        (so the legacy tool and this tool keep editing the same file); `geometry` gives the lines as
+        drawn (FsmScene.sm_geometry). Other views are saved as this tool's .json."""
         if self.readonly:
             QMessageBox.information(parent, 'Read-only', f'Cannot save: {self.readonly_reason}.')
             return False
@@ -110,10 +111,10 @@ class EditorContext:
         return True
 
     def _save_sm(self, model, parent, geometry) -> bool:
-        """Write the state diagram back into its HDS .sm file (hds.export_sm) and report in the
+        """Write the state diagram back into its legacy .sm file (formats.export_sm) and report in the
         Log, and in a message box, what could not be written.
         """
-        from hds.export_sm import export_sm
+        from formats.export_sm import export_sm
         path = self.view.path
         if self.manager.prefs.create_backup and os.path.exists(path):
             import shutil
@@ -124,7 +125,7 @@ class EditorContext:
             self.manager.log(f'  not saved: {w}')
         if warn:
             QMessageBox.warning(parent, 'Saved with omissions',
-                                'Saved to the HDS file, but these changes could not be written yet:\n\n'
+                                'Saved to the .sm file, but these changes could not be written yet:\n\n'
                                 + '\n'.join(warn[:15]) + ('\n...' if len(warn) > 15 else ''))
         self.manager.view_saved(self)
         return True
@@ -148,7 +149,7 @@ class EditorContext:
             root = self.project.design_root_unit()
             if root is None:
                 QMessageBox.information(parent, 'Generate', 'No design root is set for this project '
-                                        '(design_root in the [hds_settings] section of the .hdp file).')
+                                        f'(design_root in the [{SETTINGS_SECTION}] section of the .hdp file).')
                 return
             start = (root.library, root, model if root is self.unit else None)
         order, seen = [], set()

@@ -18,7 +18,7 @@ def _is_reset(name: str) -> bool:
 
 def new_fsm(library: str, unit: str, view: str, ports: list[tuple[str, str, str]], language: str,
             state_decl: str, encoding: str) -> FsmView:
-    """The state diagram of a new design unit (File > New Design Content > State Machine), as HDS
+    """The state diagram of a new design unit (File > New Design Content > State Machine), as the legacy tool
     starts one: the ports typed in the dialog (`ports` = (mode, bounds, name)), the first
     clock-like input as clock, the first reset-like input as asynchronous active-low reset,
     outputs combinational with default 0, one state ST_IDLE and the clock / reset / recovery
@@ -31,13 +31,13 @@ def new_fsm(library: str, unit: str, view: str, ports: list[tuple[str, str, str]
         if mode == 'input' and not clock_done and _is_clock(name):
             s.category, s.expression, clock_done = 'clock', f'posedge {name}', True
         elif mode == 'input' and not reset_done and _is_reset(name):
-            # As in a new HDS 2021.1 state diagram, the reset is asynchronous and active low
+            # As in a new legacy state diagram, the reset is asynchronous and active low
             # ("Reset (Async Low)", condition !rst), whatever its name
             s.category, s.expression, reset_done = 'reset', f'!{name}', True
         elif mode == 'output':
             s.scheme, s.default = 'comb', "'0" if bounds else "1'b0"
         signals.append(s)
-    # the concurrent state machine is named "csm", as HDS names it in a new state diagram
+    # the concurrent state machine is named "csm", as legacy names it in a new state diagram
     m = Machine(name='csm', encoding=encoding, state_decl=state_decl)
     m.states = [State('s1', 'ST_IDLE', 0, 0)]
     m.points = [Point('p1', 'clock', -220, -100), Point('p2', 'reset', -220, -50), Point('p3', 'recovery', -220, 80)]

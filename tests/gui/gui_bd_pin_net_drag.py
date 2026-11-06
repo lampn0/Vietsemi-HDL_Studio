@@ -6,7 +6,7 @@ HDP, CFG, OUT = _env.setup()
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from hds.import_bd import import_bd
+from formats.import_bd import import_bd
 from gui import bd_editor
 
 app = QApplication(sys.argv)

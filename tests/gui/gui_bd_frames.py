@@ -6,7 +6,7 @@ HDP, CFG, OUT = _env.setup()
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QInputDialog
-from hds.import_bd import import_bd
+from formats.import_bd import import_bd
 from gui import bd_editor
 from codegen.bd_codegen import generate_bd
 from hdl.parser import check_text

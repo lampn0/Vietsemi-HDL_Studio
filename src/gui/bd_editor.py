@@ -10,18 +10,19 @@ Items (each holds its model object in `obj`; see bd_model):
       PortIoItem    a module port (input / output / inout arrow)
     WireItem        one net segment chain, with handles to move points and segments
 
-BdScene holds the items of one BlockDiagram, implements the HDS editing rules (what follows
+BdScene holds the items of one BlockDiagram, implements the legacy editing rules (what follows
 when an object moves, how nets attach and connect, the add tools, routing) and emits
 `changed_model` after every change. BdEditorWindow is the window: canvas, Signals /
-Parameters tables, Diagram Browser, menus and toolbars with HDS's names, popup menus,
+Parameters tables, Diagram Browser, menus and toolbars with the legacy tool's names, popup menus,
 dialogs, copy / paste, undo, save and generation.
 
 Routing helpers (route_net, _avoid, _pin_route, ...) compute orthogonal net paths on the
-grid. Coordinates are scene units (HDS units / 75); GRID is HDS's 1000-unit grid.
+grid. Coordinates are scene units (legacy units / 75); GRID is the legacy tool's 1000-unit grid.
 """
 from __future__ import annotations
 
-from version import APP_NAME, about_text
+from version import APP_NAME
+from .branding import install_app_icon, show_about
 import os
 import re
 
@@ -34,7 +35,7 @@ from PySide6.QtWidgets import (QApplication, QGraphicsSimpleTextItem, QComboBox,
                                QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QToolBar, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from bd_model import (NAME_LINE_H, BdEmbedded, BdFrame, BdInstance, BdJunction, BdPin, BdPortIo, BdWire,
+from bd_model import (NAME_LINE_H, BdComment, BdEmbedded, BdFrame, BdInstance, BdJunction, BdPin, BdPortIo, BdWire,
                         BlockDiagram)
 from codegen.bd_codegen import generate_bd
 from model import LANGUAGES, Parameter, Signal as Sig
@@ -43,13 +44,15 @@ from .bd_dialogs import ComponentPicker, ComponentPropertiesDialog, SignalProper
 from .code_view import CodeView
 from .diagram import FsmGraphicsView
 from .icons import icon
-from .menus import BD_MENUS, arrange_menus
-from .toolbars import BD_KEYS, BD_TOOLBAR, build_toolbar
+from . import editor_common as EC
+from .menus import arrange_menus, bd_menus
+from .panels import PanelCommands, PanelItem
+from .toolbars import BD_KEYS, BD_TOOLBARS, build_toolbars, fill_toolbars_menu
 from .tables import ParametersTable, SignalsTable
 from .undo import SnapshotUndo, load_view_state, save_view_state
 
-# Diagram text. HDS diagrams name "courier", which HDS on Windows draws with its default font
-# (Arial, hds_user_prefs defaultFont); HDL Studio draws it the same way. (The names are older than
+# Diagram text. legacy diagrams name "courier", which the legacy tool on Windows draws with its default font
+# (Arial, the user preference defaultFont); HDL Studio draws it the same way. (The names are older than
 # that choice: MONO is not monospaced.)
 DIAGRAM_FONT = 'Arial'
 MONO = QFont(DIAGRAM_FONT, 8)
@@ -59,7 +62,7 @@ BLOCK_FILL = QColor(0, 230, 0)
 EMB_FILL = QColor(255, 255, 160)
 # net drawing tools: Add Signal / Bus, and their "with a Port" variants
 NET_MODES = ('wire', 'bus', 'wire_port', 'bus_port')
-EMB_NEW_SIZE = (8000 / 75, 10000 / 75)   # a new embedded block: 8000 x 10000 HDS units, as HDS 2021.1 adds it
+EMB_NEW_SIZE = (8000 / 75, 10000 / 75)   # a new embedded block: 8000 x 10000 legacy units, as the legacy tool adds it
 SEL_PEN = QPen(QColor(255, 120, 0), 2.5)
 PIN_GRAB = 6.0
 from .diagram import GRID      # the legacy grid (1000 database units), shared with the state diagram
@@ -180,7 +183,7 @@ class InstanceItem(_Movable):
 
     def name_lines(self) -> list[tuple[str, str, QRectF]]:
         """Visible name lines ('library', 'unit', 'instance') and their boxes in item coordinates.
-        The lines keep their slots: a hidden library line leaves its place empty, as in HDS."""
+        The lines keep their slots: a hidden library line leaves its place empty, as in the legacy tool."""
         o = self.obj
         fm = QFontMetricsF(BOLD)
         lines = [('library', o.library, o.show_library), ('unit', o.unit, True), ('instance', o.name, o.show_instance)]
@@ -264,7 +267,7 @@ class InstanceItem(_Movable):
         kind = self.name_at(e.scenePos()) if pin is None and e.button() == Qt.LeftButton and sc.mode == 'select' else ''
         if kind:
             # A press on a name line (library / component / instance) selects that line only,
-            # like HDS: the body stays unselected and a drag moves the name text, not the component.
+            # like the legacy tool: the body stays unselected and a drag moves the name text, not the component.
             sc.clearSelection()
             sc.select_text(self, kind)
             if not sc.readonly:
@@ -324,7 +327,7 @@ class InstanceItem(_Movable):
             self.bd_scene.changed_model.emit()
 
     def paint(self, p: QPainter, opt, widget=None):
-        """Draw the component as HDS does: body (fill / line style), corner handles when selected,
+        """Draw the component as the legacy tool does: body (fill / line style), corner handles when selected,
         name lines (the selected one boxed in red), parameter values, and each port (a triangle
         pointing in for inputs / out for outputs, clock mark, label next to it; top / bottom port
         labels read upward). The selected port gets four small handles.
@@ -335,7 +338,7 @@ class InstanceItem(_Movable):
         p.setPen(_pen(o.line_color, 1.5 * o.line_width, o.line_style))
         p.drawRect(QRectF(0, 0, o.w, o.h))
         if self.isSelected():
-            # as HDS 2021.1: a selected component keeps its outline and gets corner handles
+            # as the legacy tool: a selected component keeps its outline and gets corner handles
             p.save()
             p.setPen(Qt.NoPen); p.setBrush(Qt.black)
             hr = HANDLE_PX * _px(p) / 2
@@ -348,7 +351,7 @@ class InstanceItem(_Movable):
             p.drawText(r, Qt.AlignLeft | Qt.AlignVCenter, text)
         sel = self.bd_scene.selected_text
         if sel is not None and sel[0] == o.id:
-            # The selected name line: red box with a small handle at each corner, as in HDS.
+            # The selected name line: red box with a small handle at each corner, as in the legacy tool.
             box = next((r for kind, _, r in self.name_lines() if kind == sel[1]), None)
             if box is not None:
                 px = _px(p)                     # one screen pixel in item units (handles keep their size)
@@ -387,7 +390,7 @@ class InstanceItem(_Movable):
                 p.setPen(Qt.black)
                 text = port_label(pin.name, 'wire', False, pin.bounds, '', o)
                 gap = 10 if pin.clock else 0    # after the clock mark
-                # as HDS saves component ports: the name starts 1000 units (one grid step) past
+                # as the legacy tool saves component ports: the name starts 1000 units (one grid step) past
                 # the triangle, its baseline 300 units below the port's line
                 g, base = GRID, 300 / 75
                 if pin.side == 'left':
@@ -580,13 +583,22 @@ class CommentItem(_Movable):
         o = self.obj
         if o.fill:
             p.fillRect(self.boundingRect(), QColor(o.fill))
-        p.setPen(SEL_PEN if self.isSelected() else QPen(QColor(0, 0, 0), 0))
-        p.setBrush(Qt.NoBrush)
-        p.drawRect(self.boundingRect())
+        if o.group or self.isSelected():
+            # the boxes of the title block are framed; a free comment text only while selected
+            p.setPen(SEL_PEN if self.isSelected() else QPen(QColor(0, 0, 0), 0))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(self.boundingRect())
         p.setFont(MONO)
         p.setPen(QColor(o.color))
         p.drawText(self.boundingRect().adjusted(3, 0, -2, 0), Qt.AlignLeft | Qt.AlignVCenter,
                    expand_title_text(o.text, self.bd_scene.bd))
+
+    def mouseDoubleClickEvent(self, e):
+        """A double-click on a free comment text edits it (the title block boxes are edited in their dialog)."""
+        if not self.obj.group and not self.bd_scene.readonly:
+            self.bd_scene.comment_edit_requested.emit(self.obj)
+            return
+        super().mouseDoubleClickEvent(e)
 
 
 class JunctionItem(_Movable):
@@ -738,7 +750,7 @@ class EmbeddedItem(_Movable):
         sc = self.bd_scene
         hit = self.end_at(e.scenePos()) if e.button() == Qt.LeftButton and sc.mode == 'select' else None
         if hit is None and e.button() == Qt.LeftButton and sc.mode == 'select' and                 (self.in_text(e.scenePos()) or self._box_handle(e.scenePos())):
-            # The Text view is anchored to the block but moves and resizes on its own (HDS):
+            # The Text view is anchored to the block but moves and resizes on its own (as in the legacy tool):
             # a drag on it moves the text box, a drag on its corner handle resizes it.
             sc.clearSelection(); self.setSelected(True)
             if not sc.readonly:
@@ -818,7 +830,7 @@ class EmbeddedItem(_Movable):
         o = self.obj
         r = QRectF(0, 0, *self._size())
         if getattr(self, 'ghost', False):
-            # the Add Embedded Block preview, as HDS draws it: the outline only
+            # the Add Embedded Block preview, as the legacy tool draws it: the outline only
             p.setBrush(Qt.NoBrush); p.setPen(QPen(Qt.black, 0))
             p.drawRect(r)
             return
@@ -829,7 +841,7 @@ class EmbeddedItem(_Movable):
         box = self.text_rect()
         if box is None or not box.contains(r.center()):
             # No view inside the block (none yet, or the Text view beside it): name and number
-            # in the middle of the block, as HDS shows a new embedded block.
+            # in the middle of the block, as the legacy tool shows a new embedded block.
             p.setFont(BOLD); p.setPen(Qt.black)
             p.drawText(r, Qt.AlignCenter, f'{o.name}\n{o.number}')
         elif o.show_name:
@@ -860,8 +872,8 @@ class EmbeddedItem(_Movable):
                 y += 10
             p.restore()
         if box is None:
-            # no view yet: a small page with a red "?" in the bottom-left corner, where HDS
-            # shows its "no view" icon (HDL Studio's own drawing, not the HDS bitmap)
+            # no view yet: a small page with a red "?" in the bottom-left corner, where the legacy tool
+            # shows its "no view" icon (HDL Studio's own drawing, not the legacy bitmap)
             icon_r = QRectF(3, r.height() - 16, 10, 13)
             p.setBrush(Qt.white); p.setPen(QPen(QColor(90, 90, 90), 0))
             p.drawRect(icon_r)
@@ -871,9 +883,9 @@ class EmbeddedItem(_Movable):
 
     def _paint_net_arrows(self, p: QPainter):
         """A black triangle where each net attaches, like a component port: its base on the
-        block edge, pointing out for an output, in for an input. As in HDS, the direction is
+        block edge, pointing out for an output, in for an input. As in the legacy tool, the direction is
         the way the net was drawn: a net that starts on the block leaves it (output), a net
-        that ends on it enters it (input). HDS stores no ports for an embedded block."""
+        that ends on it enters it (input). The legacy tool stores no ports for an embedded block."""
         t = PIN_HALF
         p.setPen(Qt.NoPen); p.setBrush(Qt.black)
         b = self.body()
@@ -931,7 +943,7 @@ class _InlineText(QPlainTextEdit):
 
 
 class EmbeddedViewDialog(QDialog):
-    """"Create Embedded View" (HDS): which view an empty embedded block gets. HDL Studio writes
+    """"Create Embedded View" (as in the legacy tool): which view an empty embedded block gets. HDL Studio writes
     the HDL text itself, so only Text is offered; the graphical kinds are shown greyed."""
 
     def __init__(self, block_name: str, parent=None):
@@ -979,7 +991,7 @@ class PortIoItem(_Movable):
         o = self.obj
         ghost = getattr(self, 'ghost', False)
         if ghost:
-            # the Add Port preview, as HDS draws it: an outline (white inside), no name
+            # the Add Port preview, as the legacy tool draws it: an outline (white inside), no name
             p.setBrush(Qt.white)
             p.setPen(QPen(Qt.black, 0))
         else:
@@ -988,7 +1000,7 @@ class PortIoItem(_Movable):
                      else _pen(o.line_color, o.line_width, o.line_style))
         e, h = PORT_EDGE, 0.375 * GRID
         side = self.bd_scene.port_side(o)           # the net is on this side: the stub points to it
-        # The body takes the half away from the net plus a quarter; the stub the rest. As in HDS
+        # The body takes the half away from the net plus a quarter; the stub the rest. As in the legacy tool
         # the point shows the signal flow: an input points towards its net (into the diagram),
         # an output away from it, an inout both ways.
         lo, hi = sorted((-e * side, e / 2 * side))
@@ -1005,7 +1017,7 @@ class PortIoItem(_Movable):
         p.setPen(stub)
         p.drawLine(QPointF(e / 2 * side, 0), QPointF(e * side, 0))
         if self.isSelected():
-            # as HDS: a selected port keeps its colour and gets small handles at its corners
+            # as the legacy tool: a selected port keeps its colour and gets small handles at its corners
             box = QPolygonF(shape).boundingRect()
             p.setPen(Qt.NoPen); p.setBrush(Qt.black)
             r = HANDLE_PX * _px(p) / 2
@@ -1106,7 +1118,7 @@ class WireItem(QGraphicsPathItem):
         if self.bd_scene.highlight and self.obj.net == self.bd_scene.highlight:
             pen = QPen(QColor(255, 0, 200), 3)
         elif self.isSelected():
-            pen = QPen(Qt.black, 2 if bus else 1)         # a selected net shows its handles, as in HDS
+            pen = QPen(Qt.black, 2 if bus else 1)         # a selected net shows its handles, as in the legacy tool
         else:
             pen = QPen(Qt.black, 2 if bus else 1)
         pen.setCosmetic(True)                   # widths in screen pixels, like the legacy editor
@@ -1134,7 +1146,7 @@ class WireItem(QGraphicsPathItem):
                 p.drawText(pos, self.obj.text)
 
         if self.bd_scene.selected_label == self.obj.id and self.obj.show_text:
-            # As in HDS 2021.1, the name selected on its own (a click on the name, not on the
+            # As in the legacy tool, the name selected on its own (a click on the name, not on the
             # net) gets a box with corner handles and a red leader to the start of the net,
             # the point its position is kept relative to. A selected net shows no box.
             box = self.label_rect()
@@ -1177,7 +1189,7 @@ class WireItem(QGraphicsPathItem):
 
     def is_label_vertical(self) -> bool:
         """The name runs upward along a vertical segment: as stored for a placed name (legacy
-        "ro 270"), else when the middle segment of the net is vertical (HDS aligns the name
+        "ro 270"), else when the middle segment of the net is vertical (the legacy tool aligns the name
         with the net)."""
         if self.obj.label is not None:
             return self.obj.label_vertical
@@ -1186,7 +1198,7 @@ class WireItem(QGraphicsPathItem):
 
     def label_pos(self, text_w: float) -> QPointF:
         """Baseline origin of the net name: the stored offset from the first point, else, as
-        HDS places a new net's name, centred half way along the net, just above a horizontal
+        The legacy tool places a new net's name, centred half way along the net, just above a horizontal
         segment or just left of a vertical one (reading upward)."""
         pts = self.obj.points
         if self.obj.label is not None:
@@ -1245,7 +1257,7 @@ class WireItem(QGraphicsPathItem):
             first = self.obj.points[0]
             self.obj.label_vertical = self.is_label_vertical()    # keep the orientation it is drawn with
             self._drag = ('label', None, [lp.x() - first[0], lp.y() - first[1]], pos)
-            # as HDS, the name is selected on its own: the net itself is not
+            # as the legacy tool, the name is selected on its own: the net itself is not
             self.bd_scene.clearSelection()
             self.bd_scene.select_label(self.obj.id)
             return
@@ -1397,6 +1409,7 @@ class BdScene(QGraphicsScene):
     component_dropped = Signal(str, str, QPointF)  # library, unit, drop point (Component Browser)
     end_dropped = Signal(object)                   # a dangling net end was moved (may land on a pin/port)
     place_requested = Signal(QPointF)
+    comment_edit_requested = Signal(object)      # a free comment text (BdComment) double-clicked
     context_requested = Signal(object, object, QPointF)     # item (or None), screen pos, scene pos
 
     def __init__(self, parent=None):
@@ -1404,7 +1417,7 @@ class BdScene(QGraphicsScene):
         port / name line / net name, add preview, interactive routing, the net being drawn).
         """
         super().__init__(parent)
-        self.setBackgroundBrush(QColor(255, 255, 255))      # HDS canvas: pure white
+        self.setBackgroundBrush(QColor(255, 255, 255))      # legacy canvas: pure white
         self.bd = BlockDiagram()
         self.highlight = ''          # net drawn highlighted
         self.following = False       # True while objects are carried along by a move
@@ -1419,6 +1432,7 @@ class BdScene(QGraphicsScene):
         self._routing: dict[str, tuple[BdWire, str, BdPortIo]] = {}
         self._hint = None
         self.readonly = False
+        self.panels_locked = False                   # Diagram > Panels > Protect All Panels
         self.mode = 'select'
         self.items_by_id: dict[str, _Movable] = {}
         self.wire_items: dict[str, WireItem] = {}
@@ -1453,6 +1467,9 @@ class BdScene(QGraphicsScene):
             self._add(CommentItem(self, c))
         for j in bd.junctions:
             self._add(JunctionItem(self, j))
+        for pn in bd.panels:
+            self.addItem(PanelItem(pn, self.changed_model.emit, lambda q: QPointF(_snap(q.x()), _snap(q.y())),
+                                   lambda: self.readonly or self.panels_locked))
         self._attach_port_ends()
         self.setSceneRect(self.itemsBoundingRect().adjusted(-600, -600, 600, 600))
 
@@ -1571,14 +1588,14 @@ class BdScene(QGraphicsScene):
                 self.wire_items[w.id].refresh()
 
     def select_label(self, wire_id: str | None):
-        """Select the name of one net on its own (or none), as HDS does on a click on the name."""
+        """Select the name of one net on its own (or none), as the legacy tool does on a click on the name."""
         old, self.selected_label = self.selected_label, wire_id
         for wid in {old, wire_id} - {None}:
             if wid in self.wire_items:
                 self.wire_items[wid].update()
 
     def select_text(self, item: 'InstanceItem | None', kind: str = ''):
-        """Select one name line of a component (or none). As in HDS, the line is selected on
+        """Select one name line of a component (or none). As in the legacy tool, the line is selected on
         its own: the component body is not selected, so Delete does not remove the component."""
         old = self.selected_text
         self.selected_text = (item.obj.id, kind) if item is not None and kind else None
@@ -1721,7 +1738,7 @@ class BdScene(QGraphicsScene):
         return True
 
     def _show_hint(self, pio: BdPortIo):
-        """Show HDS's "Press 'z' to change routing" hint next to the dragged port."""
+        """Show the legacy tool's "Press 'z' to change routing" hint next to the dragged port."""
         if self._hint is None:
             self._hint = QGraphicsSimpleTextItem()
             self._hint.setBrush(QColor(220, 0, 0))
@@ -1847,11 +1864,11 @@ class BdScene(QGraphicsScene):
             return super().mousePressEvent(e)
         pos = QPointF(_snap(e.scenePos().x()), _snap(e.scenePos().y()))
         if self.mode in ('component', 'port_in', 'port_out', 'port_inout', 'embedded', 'frame', 'frame_if',
-                         'frame_else'):
+                         'frame_else', 'comment', 'panel'):
             self.place_requested.emit(pos)
             return
         if self.mode in NET_MODES:
-            # As in HDS (checked on HDS 2021.1) a net starts on anything: a component port, a
+            # As in the legacy tool (checked on the legacy tool) a net starts on anything: a component port, a
             # PortIO, an embedded block, an existing net (joined with a dot) or open space.
             # A later click on one of those objects ends the net there and connects it; a
             # click in open space only adds a corner and the net goes on; a double-click ends
@@ -1863,7 +1880,7 @@ class BdScene(QGraphicsScene):
                 self._wire_start = (hit[0], hit[1])
                 self._wire_pts = []
                 self._rubber = QGraphicsPathItem()
-                self._rubber.setPen(QPen(QColor(0, 0, 0), 0))   # HDS: a thin solid line
+                self._rubber.setPen(QPen(QColor(0, 0, 0), 0))   # The legacy tool: a thin solid line
                 self.addItem(self._rubber)
                 return
             if hit is not None:
@@ -1908,7 +1925,7 @@ class BdScene(QGraphicsScene):
 
     def _ortho_leg(self, to: QPointF) -> list[list[float]]:
         """Corner points from the last point of the net being drawn to `to`, with right angles
-        as HDS draws them: after a horizontal segment the net turns vertical first, and the
+        as the legacy tool draws them: after a horizontal segment the net turns vertical first, and the
         other way round (the first leg starts horizontal). Returns [[x, y], ...] ending at `to`."""
         last = QPointF(*self._wire_pts[-1]) if self._wire_pts else self._wire_start[1]
         if abs(last.x() - to.x()) < 0.01 or abs(last.y() - to.y()) < 0.01:
@@ -1946,7 +1963,7 @@ class BdScene(QGraphicsScene):
                 self.edit_net_requested.emit(top.obj.name, e.scenePos())
                 return
             if wire is not None and (top is wire or not isinstance(top, _Movable)):
-                # a net: the edit box goes over the net name, as in HDS (else at the click)
+                # a net: the edit box goes over the net name, as in the legacy tool (else at the click)
                 pos = e.scenePos()
                 if wire.obj.show_text and wire.obj.points and not wire.is_label_vertical():
                     pos = wire.label_pos(QFontMetricsF(MONO).horizontalAdvance(wire.obj.net))
@@ -1989,7 +2006,7 @@ class BdScene(QGraphicsScene):
     # placement preview ----------------------------------------------------------------
     def _update_ghost(self, pos: QPointF):
         """While adding a port or an embedded block, a faded copy of it follows the cursor (on
-        the grid), as in HDS. It is a real item drawn at low opacity that takes no clicks and is
+        the grid), as in the legacy tool. It is a real item drawn at low opacity that takes no clicks and is
         not part of the model; set_mode() removes it."""
         kind = {'port_in': 'input', 'port_out': 'output', 'port_inout': 'inout', 'embedded': 'emb'}.get(self.mode)
         if self.mode == 'component' and self.ghost_instance is not None:
@@ -2002,12 +2019,12 @@ class BdScene(QGraphicsScene):
             if kind == 'emb':
                 n = max((e.number for e in self.bd.embedded), default=0) + 1
                 item = EmbeddedItem(self, BdEmbedded('_ghost', f'eb{n}', n, '', 0, 0, *EMB_NEW_SIZE))
-                item.ghost = True                  # drawn as an outline, as HDS shows it
+                item.ghost = True                  # drawn as an outline, as the legacy tool shows it
             elif kind == 'comp':
                 item = InstanceItem(self, self.ghost_instance)
             else:
                 item = PortIoItem(self, BdPortIo('_ghost', '', kind))
-                item.ghost = True                  # drawn as an outline, as HDS shows it
+                item.ghost = True                  # drawn as an outline, as the legacy tool shows it
             item.setFlags(QGraphicsItem.GraphicsItemFlags())   # not selectable, not movable
             item.setAcceptedMouseButtons(Qt.NoButton)
             item.setOpacity(1.0 if kind != 'comp' else 0.35)
@@ -2026,7 +2043,7 @@ class BdScene(QGraphicsScene):
 
     def placement_origin(self, mode: str, cursor: QPointF) -> tuple[float, float]:
         """Model position (x, y) of a port or embedded block added at the cursor, on the grid,
-        with the cursor where HDS 2021.1 has it: at the tip of a port's stub (where its net
+        with the cursor where the legacy tool has it: at the tip of a port's stub (where its net
         attaches), at the bottom-left corner of an embedded block."""
         cx, cy = _snap(cursor.x()), _snap(cursor.y())
         if mode in ('port_in', 'port_out', 'port_inout'):
@@ -2087,6 +2104,8 @@ class BdScene(QGraphicsScene):
         sel = self.selectedItems()
         if not sel:
             return False
+        dead_panels = {i.obj.id for i in sel if isinstance(i, PanelItem)}
+        bd.panels = [p for p in bd.panels if p.id not in dead_panels]
         dead_wires = {i.obj.id for i in sel if isinstance(i, WireItem)}
         dead_objs = {i.obj.id: i for i in sel if isinstance(i, _Movable)}
         for oid, it in dead_objs.items():
@@ -2423,8 +2442,8 @@ class InstanceParamsPanel(QWidget):
 # ---------------------------------------------------------------------------
 # Window
 # ---------------------------------------------------------------------------
-class BdEditorWindow(QMainWindow):
-    """The block diagram editor window (layout as HDS 2021.1: one page at a time - diagram, Signal
+class BdEditorWindow(QMainWindow, PanelCommands):
+    """The block diagram editor window (layout as the legacy tool: one page at a time - diagram, Signal
     Table, Parameters Table, Compiler Directives - the Diagram Browser on the right, HDL Studio's
     own Properties / Messages docks hidden at start).
 
@@ -2438,6 +2457,7 @@ class BdEditorWindow(QMainWindow):
         (None for a diagram opened on its own, e.g. by tests).
         """
         super().__init__()
+        install_app_icon()                  # Vietsemi mark (also when run on its own)
         self.bd = bd
         self.context = context
         self.dirty = False
@@ -2469,7 +2489,7 @@ class BdEditorWindow(QMainWindow):
             self.dir_edits[attr] = w
             f.addRow(label, w)
 
-        # As in HDS the window shows one page at a time (the diagram, the Signal Table, the
+        # As in the legacy tool the window shows one page at a time (the diagram, the Signal Table, the
         # Parameters Table, the directives); there is no tab bar, the pages are reached from the
         # Structure Navigator and the View / Diagram menus.
         self.tabs = QTabWidget()
@@ -2486,11 +2506,11 @@ class BdEditorWindow(QMainWindow):
         self.code_title = QLabel(); cl.addWidget(self.code_title); cl.addWidget(self.code)
         split.addWidget(cb)
         split.setSizes([1050, 550])
-        cb.hide()                       # HDS has no HDL pane in the diagram window (HDL > View Generated HDL)
+        cb.hide()                       # The legacy tool has no HDL pane in the diagram window (HDL > View Generated HDL)
         self.code_pane = cb
         self.setCentralWidget(split)
 
-        # Diagram Browser (right, as in HDS): the Structure Navigator of the diagram
+        # Diagram Browser (right, as in the legacy tool): the Structure Navigator of the diagram
         self.navigator = QTreeWidget()
         self.navigator.setHeaderLabel('Structure Navigator')
         self.navigator.itemClicked.connect(self._navigator_clicked)
@@ -2499,7 +2519,7 @@ class BdEditorWindow(QMainWindow):
         self.browser_dock = nd
 
         # HDL Studio's own panels (component parameters, embedded block code, messages): kept, but
-        # hidden at start so the window looks like HDS; Edit Code / HDS Log Window show them
+        # hidden at start so the window looks like the legacy tool; Edit Code / the legacy tool Log Window show them
         self.inst_panel = InstanceParamsPanel(self.changed)
         side = QTabWidget()
         side.addTab(self.inst_panel, 'Component')
@@ -2526,10 +2546,11 @@ class BdEditorWindow(QMainWindow):
             a.triggered.connect(lambda checked=False, k=k: self.tabs.setCurrentIndex(k))
             self.addAction(a)
         about = QAction(f'About {APP_NAME}', self)
-        about.triggered.connect(lambda: QMessageBox.about(self, APP_NAME, about_text('Block diagram editor')))
+        about.triggered.connect(lambda: show_about(self, 'Block diagram editor'))
         self.addAction(about)
-        arrange_menus(self, BD_MENUS)
-        # HDS shows "Ready" in the status bar when no message is shown
+        arrange_menus(self, bd_menus(toolbars=lambda m: fill_toolbars_menu(self, m),
+                                     windows=lambda m: EC.fill_windows_menu(self, m)))
+        # The legacy tool shows "Ready" in the status bar when no message is shown
         self.statusBar().addWidget(QLabel('Ready'))
 
         self.timer = QTimer(self); self.timer.setSingleShot(True); self.timer.setInterval(250)
@@ -2538,6 +2559,7 @@ class BdEditorWindow(QMainWindow):
         self.scene.changed_model.connect(self.on_scene_changed)
         self.scene.message.connect(lambda m: self.statusBar().showMessage(m, 5000))
         self.scene.place_requested.connect(self.place_at)
+        self.scene.comment_edit_requested.connect(self.edit_comment)
         self.scene.wire_finished.connect(self.add_wire)
         self.scene.rename_net_requested.connect(self.rename_net)
         self.scene.edit_net_requested.connect(self.edit_net_inline)
@@ -2583,8 +2605,8 @@ class BdEditorWindow(QMainWindow):
 
     def _build_actions(self):
         """The actions of the editor: file / edit / view commands, one checkable action per tool
-        (Select, Add Component, Add Signal, Add Port, ...), the toolbar with HDS's names and keys,
-        the View and HDS menu commands, and the generation toolbar (language).
+        (Select, Add Component, Add Signal, Add Port, ...), the toolbar with the legacy tool's names and keys,
+        the View and legacy menu commands, and the generation toolbar (language).
         """
         fm = self.menuBar().addMenu('&File')
         a_save = self._act(fm, '&Save', self.save, QKeySequence.Save, 'save')
@@ -2615,6 +2637,7 @@ class BdEditorWindow(QMainWindow):
         a_down = self._act(vm, 'Open Down', self.open_down, None, 'open_down')
 
         group = QActionGroup(self); group.setExclusive(True)
+        self.mode_group = group
         self.mode_actions = {}
         for mode, text in (('select', 'Select'), ('select_shape', 'Select Shapes'), ('pan', 'Panning'),
                            ('component', 'Add Component...'), ('wire', 'Add Signal'),
@@ -2629,7 +2652,7 @@ class BdEditorWindow(QMainWindow):
             group.addAction(a)
             self.mode_actions[mode] = a
         self.mode_actions['select'].setChecked(True)
-        # Add > Component (F3) opens the floating Component Browser, as HDS does (drag a unit
+        # Add > Component (F3) opens the floating Component Browser, as the legacy tool does (drag a unit
         # onto the diagram); set_mode('component') still places a picked component by a click
         comp = self.mode_actions['component']
         comp.triggered.disconnect()
@@ -2655,10 +2678,7 @@ class BdEditorWindow(QMainWindow):
                 a.triggered.connect(lambda checked=False, sc=scope: self.context.generate_hierarchy(self.bd, self, sc))
                 self.toolbar_actions[key] = a
         self.toolbar_actions = {k: v for k, v in self.toolbar_actions.items() if v is not None}
-        build_toolbar(self, self.toolbar_actions, BD_TOOLBAR, BD_KEYS)
-        # this version draws net names and labels as part of their objects: no separate text objects
-        self.toolbar_actions['select_text'].setToolTip('Select Text (no separate text objects in this version)')
-        # shortcuts of commands that are in no menu of the HDS layout (F2 rename, Ctrl+D open down)
+        # shortcuts of commands that are in no menu of the legacy layout (F2 rename, Ctrl+D open down)
         for a in (a_down, a_del, a_rename):
             self.addAction(a)
         self.canvas.end_command.connect(lambda: self.set_mode('select'))
@@ -2669,7 +2689,11 @@ class BdEditorWindow(QMainWindow):
         self._once = False
         self._build_view_actions()
         self._build_menu_commands()
-        gt = QToolBar('Generation'); self.addToolBar(gt)
+        self.toolbars = build_toolbars(self, self.toolbar_actions, BD_TOOLBARS, BD_KEYS)
+        EC.install_tooltip_filter(self, self.toolbars)
+        # this version draws net names and labels as part of their objects: no separate text objects
+        self.toolbar_actions['select_text'].setToolTip('Select Text (no separate text objects in this version)')
+        gt = QToolBar('Generation', self); gt.setObjectName('gen'); self.addToolBar(gt)
         self.lang = QComboBox(); [self.lang.addItem(LANG_LABEL[l], l) for l in LANGUAGES]
         self.lang.setToolTip('Target language')
         self.lang.currentIndexChanged.connect(self._lang_changed)
@@ -2729,7 +2753,7 @@ class BdEditorWindow(QMainWindow):
         self.scene.set_mode('select' if mode in ('select_shape', 'pan') else mode)
         if mode == 'component':
             # the faded component that follows the cursor: same body and ports as the instance
-            # that a click will add (the "ghosted rectangle" of HDS)
+            # that a click will add (the "ghosted rectangle" of the legacy tool)
             c = self._pending_component
             ghost = BdInstance('_ghost', c['unit'], c['library'], c['unit'])
             self._layout_pins(ghost, c['ports'])
@@ -2780,13 +2804,13 @@ class BdEditorWindow(QMainWindow):
 
     def _restore_view_position(self):
         """Open where the user left the diagram: HDL Studio's own saved view first, then the view
-        area HDS saved in the diagram (shown at 100% from its top-left corner, as HDS opens
+        area the legacy tool saved in the diagram (shown at 100% from its top-left corner, as the legacy tool opens
         it), else the whole diagram."""
         if self.canvas.restore(load_view_state(self._view_key())):
             return
         if self.bd.view_area:
-            # HDS "100%" draws 72 diagram units per screen pixel; the import scale is 1/75, so
-            # the same size on screen is a zoom of 75/72 (measured on HDS 2021.1: components
+            # The legacy tool "100%" draws 72 diagram units per screen pixel; the import scale is 1/75, so
+            # the same size on screen is a zoom of 75/72 (measured on the legacy tool: components
             # and the grid are 4% larger than HDL Studio at zoom 1)
             k = 75 / 72
             x0, y0, _x1, _y1 = self.bd.view_area
@@ -2883,7 +2907,7 @@ class BdEditorWindow(QMainWindow):
         return self._component_info(lib, unit, du)
 
     def _place_component(self, info: dict, pos: QPointF) -> BdInstance:
-        """Add a component as HDS 2021.1 drops one from its Component Browser: the body's
+        """Add a component as the legacy tool drops one from its Component Browser: the body's
         bottom-left corner at pos, the new instance selected."""
         inst = self._add_component(info, pos)
         dy = -inst.h
@@ -2899,7 +2923,7 @@ class BdEditorWindow(QMainWindow):
         return inst
 
     def show_component_browser(self):
-        """Add > Component (F3): the floating Component Browser, as in HDS; a unit dragged
+        """Add > Component (F3): the floating Component Browser, as in the legacy tool; a unit dragged
         from it onto the diagram is instantiated where it is dropped."""
         from .component_browser import ComponentBrowser
         proj = self._project()
@@ -2984,7 +3008,7 @@ class BdEditorWindow(QMainWindow):
         sym = next((v for v in du.views if v.kind == 'symbol'), None) if du is not None else None
         if sym is not None and sym.path.endswith('.sb'):
             try:
-                from hds.import_sm import symbol_parameters
+                from formats.import_sm import symbol_parameters
                 symbol = symbol_parameters(sym.path)
             except Exception:
                 symbol = []
@@ -3011,10 +3035,10 @@ class BdEditorWindow(QMainWindow):
             pmode = {'port_in': 'input', 'port_out': 'output', 'port_inout': 'inout'}[mode]
             n = len(bd.port_ios)
             if not self._add_port_on_net(pos, pmode):
-                # In open space: a free port. As in HDS an unconnected port has no name; it takes
+                # In open space: a free port. As in the legacy tool an unconnected port has no name; it takes
                 # the name of the net it gets connected to (and is not a module port until then).
                 bd.port_ios.append(BdPortIo(self._new_id('p'), '', pmode, pos.x(), pos.y()))
-            # As HDS 2021.1 does: the new port is selected and Add Port stays active (the
+            # As the legacy tool does: the new port is selected and Add Port stays active (the
             # preview follows the cursor again) until Esc, unless the command acts once
             self._reload_scene()
             self.scene.clearSelection()
@@ -3029,8 +3053,19 @@ class BdEditorWindow(QMainWindow):
         elif mode in ('frame', 'frame_if', 'frame_else'):
             if not self._add_frame(mode, pos):
                 return
+        elif mode == 'panel':
+            self.add_panel(pos)
+            if self._once:
+                self.set_mode('select')
+            return
+        elif mode == 'comment':
+            # Add > Comment Text: a free text, typed at once; it stays where it was clicked
+            self.add_comment(pos)
+            if self._once:
+                self.set_mode('select')
+            return
         elif mode == 'embedded':
-            # an empty block, as in HDS: double-click it to create its view (Text). As HDS
+            # an empty block, as in the legacy tool: double-click it to create its view (Text). As the legacy tool
             # 2021.1 does, the new block is selected and Add Embedded Block stays active.
             n = max((e.number for e in bd.embedded), default=0) + 1
             eb = BdEmbedded(self._new_id('e'), f'eb{n}', n, '', pos.x(), pos.y(), *EMB_NEW_SIZE)
@@ -3206,11 +3241,11 @@ class BdEditorWindow(QMainWindow):
 
     def _add_component(self, info: dict, pos: QPointF) -> BdInstance:
         """Create an instance of the component described by `info` at `pos` (named after the unit,
-        then unit1, unit2 ... as HDS does), with its ports laid out from its symbol when it has one.
+        then unit1, unit2 ... as the legacy tool does), with its ports laid out from its symbol when it has one.
         """
         unit, ports = info['unit'], info['ports']
         names = {i.name for i in self.bd.instances}
-        # as HDS 2021.1 names a dropped component: the unit name, then unit1, unit2, ...
+        # as legacy names a dropped component: the unit name, then unit1, unit2, ...
         name, k = unit, 0
         while name in names:
             k += 1
@@ -3227,11 +3262,11 @@ class BdEditorWindow(QMainWindow):
 
     @staticmethod
     def _symbol_layout(inst: BdInstance, path: str):
-        """Body size and port places from the unit's symbol (.sb), as HDS 2021.1 instantiates a
+        """Body size and port places from the unit's symbol (.sb), as the legacy tool instantiates a
         component (the generic layout of _layout_pins is the fallback). The name lines start at
-        the top of the body, 1800 units left of its middle (as HDS placed them)."""
+        the top of the body, 1800 units left of its middle (as the legacy tool placed them)."""
         try:
-            from hds.import_bd import symbol_geometry
+            from formats.import_bd import symbol_geometry
             geo = symbol_geometry(path)
         except Exception:
             geo = None
@@ -3301,7 +3336,7 @@ class BdEditorWindow(QMainWindow):
             a.setShortcut(QKeySequence('Alt+Return')); a.setShortcutVisibleInContextMenu(True)
         elif isinstance(item, EmbeddedItem):
             eb = item.obj
-            # As in HDS: Open (the view, or Create Embedded View when there is none), and on a
+            # As in the legacy tool: Open (the view, or Create Embedded View when there is none), and on a
             # connection point Change Mode, which flips the net's direction (a net leaving the
             # block is an output, one entering it an input).
             m.addAction('&Open', lambda: self.embedded_double_click(item, item.body().center())).setEnabled(not ro)
@@ -3333,7 +3368,7 @@ class BdEditorWindow(QMainWindow):
 
     # -- component popup menu (same entries and order as the legacy editor) -------------
     def _component_menu(self, m: QMenu, inst: BdInstance, pos: QPointF, ro: bool):
-        """The component popup menu, entries and order as in HDS (entries HDL Studio does not have yet are
+        """The component popup menu, entries and order as in the legacy tool (entries HDL Studio does not have yet are
         disabled).
         """
         du = self._unit_of(inst)
@@ -3441,7 +3476,7 @@ class BdEditorWindow(QMainWindow):
         self._menu_item(m, '&Delete', self.delete_selected, 'Del', not ro)
 
     def _net_menu(self, m: QMenu, item: 'WireItem', pos: QPointF, ro: bool):
-        """The net popup menu, entries and order as in HDS: routes, Add Port I/O, Change Style, Goto
+        """The net popup menu, entries and order as in the legacy tool: routes, Add Port I/O, Change Style, Goto
         Destination, edit, Disconnect, Highlight Net, text, comments, Object Properties.
         """
         w = item.obj
@@ -3495,7 +3530,7 @@ class BdEditorWindow(QMainWindow):
         self._menu_item(m, 'Object &Properties...', lambda: self.signal_properties(net), 'Alt+Return')
 
     def _port_menu(self, m: QMenu, item: 'PortIoItem', pos: QPointF, ro: bool):
-        """The PortIO popup menu as in HDS: Change Mode, text visibility, edit, Disconnect, Appearance,
+        """The PortIO popup menu as in the legacy tool: Change Mode, text visibility, edit, Disconnect, Appearance,
         Object Properties.
         """
         pio = item.obj
@@ -3523,7 +3558,7 @@ class BdEditorWindow(QMainWindow):
 
     # net / port commands
     def set_net_style(self, net: str, bus: bool):
-        """Change Style: draw the net as a bus (thick) or a signal (thin). As in HDS the style
+        """Change Style: draw the net as a bus (thick) or a signal (thin). As in the legacy tool the style
         is only the look of the net; its declaration (bounds) is not changed."""
         self.bd.net_styles[net] = 'bus' if bus else 'signal'
         self._reload_scene()
@@ -3544,7 +3579,7 @@ class BdEditorWindow(QMainWindow):
         self._reload_scene()
 
     def change_embedded_view(self, eb: BdEmbedded):
-        """Change Embedded View (HDS): drop the existing view, then Create Embedded View."""
+        """Change Embedded View (as in the legacy tool): drop the existing view, then Create Embedded View."""
         if QMessageBox.question(self, 'Change Embedded View', f'Delete the existing view of {eb.name}?') \
                 != QMessageBox.Yes:
             return
@@ -3768,6 +3803,30 @@ class BdEditorWindow(QMainWindow):
         self.statusBar().showMessage(f'Added {n} signal stub(s)', 4000)
         self._reload_scene()
 
+    def connect_by_name(self):
+        """Diagram > Autoroute > Connect By Name: every free port of the selected components (all
+        components when none is selected) whose name is the name of a net or port of the diagram
+        gets a stub on that net, so it is connected to it by name."""
+        bd = self.bd
+        names = {s.name for s in bd.signals} | {w.net for w in bd.wires if w.net} | {p.name for p in bd.port_ios if p.name}
+        insts = self._sel(InstanceItem) or list(bd.instances)
+        n = 0
+        for inst in insts:
+            for pin in self._free_pins(inst):
+                net = pin.net if pin.net in names else pin.name if pin.name in names else ''
+                if not net:
+                    continue
+                pin.net = net
+                tip, out = pin_end(pin), _OUT[pin.side]
+                bd.wires.append(BdWire(self._new_id('w'), net, [tip, [_snap(tip[0] + out[0] * 4 * GRID),
+                                                                    _snap(tip[1] + out[1] * 4 * GRID)]],
+                                       f'pin:{inst.id}:{pin.name}', ''))
+                n += 1
+        self.statusBar().showMessage(f'Connected {n} port(s) by name', 4000)
+        if n:
+            self._reload_scene()
+            self.changed()
+
     def add_port_ios(self, inst: BdInstance):
         """Add PortIO: a module port joined by a net to every free port of the instance."""
         n = 0
@@ -3891,7 +3950,8 @@ class BdEditorWindow(QMainWindow):
     def _new_id(self, prefix: str) -> str:
         """A new object id '<prefix>n<k>' not used by any object of the diagram."""
         used = {i.id for i in self.bd.instances} | {e.id for e in self.bd.embedded} | \
-               {p.id for p in self.bd.port_ios} | {w.id for w in self.bd.wires} | {f.id for f in self.bd.frames} |                {j.id for j in self.bd.junctions} | {c.id for c in self.bd.comments}
+               {p.id for p in self.bd.port_ios} | {w.id for w in self.bd.wires} | {f.id for f in self.bd.frames} | \
+               {j.id for j in self.bd.junctions} | {c.id for c in self.bd.comments} | {p.id for p in self.bd.panels}
         k = 1
         while f'{prefix}n{k}' in used:
             k += 1
@@ -3912,7 +3972,7 @@ class BdEditorWindow(QMainWindow):
         return next((p for p in self.bd.port_ios if p.id == ref[4:]), None)
 
     def _default_net_name(self, bus: bool) -> str:
-        """HDS default name of a new net: sig0, sig1... for a signal, dbus0, dbus1... for a bus
+        """legacy default name of a new net: sig0, sig1... for a signal, dbus0, dbus1... for a bus
         (the first number not used by a signal of the diagram)."""
         base = 'dbus' if bus else 'sig'
         used = {s.name for s in self.bd.signals} | {w.net for w in self.bd.wires}
@@ -3923,7 +3983,7 @@ class BdEditorWindow(QMainWindow):
 
     def add_wire(self, start_ref: str, end_ref: str, a: list, bends: list, b: list):
         """A net drawn with Add Signal / Add Bus (and their "with a Port" variants), named as
-        HDS names it, without asking:
+        legacy names it, without asking:
           - an end on a net (component port net, PortIO, existing net) gives that net's name;
           - else an end on a component port gives the port's name and bounds;
           - else the default name sig<n> (a bus: dbus<n>, bounds [15:0]).
@@ -3952,8 +4012,8 @@ class BdEditorWindow(QMainWindow):
         points = _route(a, bends, b)
         if len(points) < 2 or points[0] == points[-1]:
             return                              # nothing drawn
-        # As HDS 2021.1: a signal (not a bus) started or ended on a bus rips one element of it;
-        # HDS asks which ("Rip Element From Bus"). The new wire carries that slice of the bus.
+        # As the legacy tool: a signal (not a bus) started or ended on a bus rips one element of it;
+        # The legacy tool asks which ("Rip Element From Bus"). The new wire carries that slice of the bus.
         rip = ''
         bus_end = next((w for w in joined if w is not None and self.scene.is_bus(w.net)), None)
         if bus_end is not None and not bus:
@@ -4001,7 +4061,7 @@ class BdEditorWindow(QMainWindow):
                 setattr(w, which, f'pio:{pio.id}')
                 self._ensure_port(net, pmode)
         self.scene.load(bd)
-        # as HDS, the new net is left selected
+        # as the legacy tool, the new net is left selected
         for it in self.scene.items():
             if isinstance(it, WireItem) and it.obj is w:
                 it.setSelected(True)
@@ -4009,7 +4069,7 @@ class BdEditorWindow(QMainWindow):
         self.changed()
 
     def _ask_rip_element(self, net: str) -> str | None:
-        """The "Rip Element From Bus" dialog of HDS: which element of the bus a signal drawn
+        """The "Rip Element From Bus" dialog of the legacy tool: which element of the bus a signal drawn
         from it carries. Returns "[n]" ('' when nothing is typed) or None on Cancel. The
         elements are offered from the bus bounds, MSB first; any index expression can be typed."""
         import re
@@ -4044,8 +4104,8 @@ class BdEditorWindow(QMainWindow):
 
     @staticmethod
     def _place_new_label(w: BdWire):
-        """Name position of a new net, as HDS 2021.1 places it (read back from diagrams it saved;
-        HDS units, 75 per scene unit), from the start of the first segment:
+        """Name position of a new net, as the legacy tool places it (read back from diagrams it saved;
+        legacy units, 75 per scene unit), from the start of the first segment:
           - right: baseline 200 above the net, text starting 2000 after the start;
           - left: baseline 200 above, text starting 3000 before the start;
           - down: text read upward, baseline 200 left of the net, its top 2000 below the start;
@@ -4054,7 +4114,7 @@ class BdEditorWindow(QMainWindow):
         if len(w.points) < 2:
             return
         (x0, y0), (x1, y1) = w.points[0], w.points[1]
-        u = 1 / 75                                   # one HDS unit in scene units
+        u = 1 / 75                                   # one legacy unit in scene units
         if abs(y0 - y1) < 0.01:                      # horizontal
             w.label = [(2000 if x1 >= x0 else -3000) * u, -200 * u]
             w.label_vertical = False
@@ -4070,7 +4130,7 @@ class BdEditorWindow(QMainWindow):
 
     def edit_net_inline(self, net: str, pos: QPointF):
         """Edit a net (or the port that stands for it) in place, in a box on the diagram, in the
-        HDS form "name : type[bounds]", e.g. "rc_write_enable_rt : wire[DC_ROUTE_NUM - 1:0]".
+        The legacy tool form "name : type[bounds]", e.g. "rc_write_enable_rt : wire[DC_ROUTE_NUM - 1:0]".
         pos is the baseline start of the net name on the diagram (or the click position): the box
         is laid over it so the text being edited sits where the name was drawn."""
         if not net or self.scene.readonly:
@@ -4106,12 +4166,12 @@ class BdEditorWindow(QMainWindow):
         ed.setFocus()
 
     def embedded_double_click(self, item: 'EmbeddedItem', pos: QPointF):
-        """Double-click on an embedded block, as in HDS:
+        """Double-click on an embedded block, as in the legacy tool:
           on the white Text view   - edit the HDL text in place;
           on the yellow block      - with no view yet, "Create Embedded View" asks which view to
                                      create (only Text is supported); with a Text view, edit it.
         A new Text view starts as "// <name> <number>" in a box at the block's bottom-right
-        corner (where HDS puts it); it can then be edited right away."""
+        corner (where the legacy tool puts it); it can then be edited right away."""
         eb = item.obj
         if item.text_rect() is None:
             dlg = EmbeddedViewDialog(eb.name, self)
@@ -4125,7 +4185,7 @@ class BdEditorWindow(QMainWindow):
         self.edit_embedded_text_inline(item)
 
     def edit_embedded_text_inline(self, item: 'EmbeddedItem'):
-        """Edit the HDL text of an embedded block in a box over its Text view. As in HDS a click
+        """Edit the HDL text of an embedded block in a box over its Text view. As in the legacy tool a click
         elsewhere (focus leaves the box) keeps the text; Esc throws the edit away."""
         eb = item.obj
         box = item.text_rect()
@@ -4146,7 +4206,7 @@ class BdEditorWindow(QMainWindow):
 
     def edit_component_text_inline(self, item: 'InstanceItem', kind: str):
         """Double-click on a name line of a component: edit it in place, in a white box over
-        the text, as HDS does. Enter applies, Esc or a click elsewhere cancels.
+        the text, as the legacy tool does. Enter applies, Esc or a click elsewhere cancels.
 
         kind is the line that was double-clicked:
           'instance' - renames the instance (must be a new, valid Verilog identifier);
@@ -4226,8 +4286,10 @@ class BdEditorWindow(QMainWindow):
                 a.setEnabled(False)
             self.toolbar_actions[key] = a
             return a
-        act('refresh', '&Refresh', self._refresh_view, 'F5').setStatusTip('Redraws the active diagram')
-        act('view_panel', 'View &Panel')                     # no panels in this version
+        a = act('refresh', '&Refresh', self._refresh_view, 'F5')
+        a.setStatusTip('Redraws the active diagram')
+        a.setIcon(icon('refresh'))
+        self.build_panel_actions(act, self.scene.readonly)
         act('grid', '&Grid', self._show_grid, checkable=True, checked=True)
         tb = act('toolbars', '&Toolbars', lambda: None)
         menu = QMenu(self)
@@ -4244,15 +4306,15 @@ class BdEditorWindow(QMainWindow):
         act('page_break', 'Page Break Preview')
         self.canvas.viewport().installEventFilter(self)
 
-    # -- menu bar commands that act on the selection (HDS File / Diagram / Options / Window) --
+    # -- menu bar commands that act on the selection (the legacy tool File / Diagram / Options / Window) --
     def _sel(self, cls) -> list:
         """Model objects of the selected items of one kind (InstanceItem, WireItem, PortIoItem)."""
         return [i.obj for i in self.scene.selectedItems() if isinstance(i, cls)]
 
     def _build_menu_commands(self):
-        """Commands of the HDS menu bar that the toolbar does not have. Each one works on the
+        """Commands of the legacy menu bar that the toolbar does not have. Each one works on the
         current selection like its entry in the right-click menus; update_menu_states enables
-        them when a menu opens, from what is selected then (as HDS greys its entries)."""
+        them when a menu opens, from what is selected then (as the legacy tool greys its entries)."""
         def act(key, text, slot=None, shortcut=''):
             """Create the menu action `key` (disabled without a slot); its shortcut is added to the window."""
             a = QAction(text, self)
@@ -4316,13 +4378,279 @@ class BdEditorWindow(QMainWindow):
         act('update_interface', 'Interface...', None if ro else each(InstanceItem, self.update_interface))
         act('compiler_directives', 'Compiler Directives...', lambda: self.tabs.setCurrentIndex(3))
         act('check_design', 'Check Design', self.run_checks)
+        # Standard toolbar / File: New, Back / Forward, Open Up, Print
+        from PySide6.QtWidgets import QMenu as _QMenu
+        hist = EC.History.of(mgr if mgr is not None else self)
+        new_content = act('new_content', 'Design Content...', mgr.new_unit if mgr else None)
+        new_tb = act('new_testbench', 'Test Bench...')
+        a_new = act('new', 'New', mgr.new_unit if mgr else None)
+        new_menu = _QMenu(self)
+        new_menu.addAction(new_content); new_menu.addAction(new_tb)
+        a_new.setMenu(new_menu)
+        act('open_up', 'Open Up', (lambda: EC.open_up(self)) if mgr else None)
+        act('back', 'Back', lambda: hist.go(-1))
+        act('forward', 'Forward', lambda: hist.go(1))
+        act('print', 'Print...', lambda: EC.print_diagram(self, self.scene))
+        act('print_window', 'Print Window...', lambda: EC.print_diagram(self, self.scene, self.canvas))
+        act('document', 'Single Level', lambda: EC.document_single_level(
+            self, self.scene, self.bd.unit, f'{self.bd.library}/{self.bd.unit}/{self.bd.view}',
+            generate_bd(self.bd)[0], ''))
+        # Edit: Find / Replace, Align
+        act('find', 'Find...', lambda: self.find_replace(False))
+        act('replace', 'Replace...', lambda: self.find_replace(True))
+        for key, text, how in (('align_left', 'Align Left', 'left'), ('align_center', 'Align Center', 'center'),
+                               ('align_right', 'Align Right', 'right'), ('align_top', 'Align Top', 'top'),
+                               ('align_middle', 'Align Middle', 'middle'),
+                               ('align_bottom', 'Align Bottom', 'bottom')):
+            act(key, text, None if ro else
+                (lambda checked=False, h=how: self._moved(EC.align(self._ordered_selection(), h))))
+        act('distribute_h', 'Distribute Horizontally',
+            None if ro else (lambda: self._moved(EC.distribute(self.scene.selectedItems(), True))))
+        act('distribute_v', 'Distribute Vertically',
+            None if ro else (lambda: self._moved(EC.distribute(self.scene.selectedItems(), False))))
+        # Diagram: Copy Picture, connectivity tables (IBD)
+        act('copy_picture', 'Copy Picture', self.copy_picture)
+        act('edit_ibd', 'Edit as IBD', lambda: self.connectivity_table(editable=not ro))
+        act('visualize_ibd', 'Visualize as IBD', lambda: self.connectivity_table(editable=False))
+        # Tasks: the checks of the diagram are the Check flow here
+        act('check', 'Run Single', self.run_checks)
+        act('connect_by_name', 'Connect By Name', None if ro else self.connect_by_name)
+        act('paste_system', 'Paste from system clipboard', None if ro else self.paste_system)
+        # Add > Comment Text, Add > Panel
+        for mode, text in (('comment', 'Comment Text'), ('panel', 'Add Panel')):
+            a = QAction(text, self)
+            a.setCheckable(True)
+            a.triggered.connect(lambda checked=False, m=mode: self.set_mode(m))
+            a.setEnabled(not ro)
+            self.mode_actions[mode] = a
+            self.mode_group.addAction(a)
+            self.toolbar_actions[mode] = a
+        # Window / Help
+        act('component_browser', 'Component Browser', self.show_component_browser)
+        act('help_manuals', 'Help and Manuals', EC.open_user_guide, 'F1')
+        act('regex_help', 'Regular Expressions', lambda: EC.show_regex_help(self))
+        self._history = hist
+        hist.visited(self)
+        self.scene.selectionChanged.connect(self.update_menu_states)
         # Options / Window / Help: the Design Manager's dialogs and windows
         act('main_settings', 'Main...', mgr.main_settings if mgr else None)
         act('verilog_options', 'Verilog...', mgr.verilog_options if mgr else None)
-        act('log_window', 'HDS Log Window', lambda: (self.log_dock.show(), self.log_dock.raise_()))
+        act('log_window', 'Log Window', lambda: (self.log_dock.show(), self.log_dock.raise_()))
         act('design_manager', 'Design Manager',
             (lambda: (mgr.show(), mgr.raise_(), mgr.activateWindow())) if mgr else None)
         act('shortcuts_help', 'Keyboard Shortcuts', mgr._show_shortcuts if mgr else None)
+
+    # -- panels (panels.PanelCommands) ---------------------------------------------------
+    def panels_model(self) -> list:
+        return self.bd.panels
+
+    def panel_new_id(self) -> str:
+        return self._new_id('pn')
+
+    def panels_reload(self):
+        self._reload_scene()
+
+    def panels_changed(self):
+        self.changed()
+
+    # -- comment texts ------------------------------------------------------------------
+    def add_comment(self, pos: QPointF):
+        """Add > Comment Text: a free text at `pos`, typed in a dialog (empty: nothing added)."""
+        text, ok = QInputDialog.getMultiLineText(self, 'Comment Text', 'Text:')
+        if not ok or not text.strip():
+            return
+        c = BdComment(self._new_id('c'), text.rstrip())
+        c.x, c.y = pos.x(), pos.y()
+        self._size_comment(c)
+        self.bd.comments.append(c)
+        self._reload_scene()
+        self.scene.clearSelection()
+        it = self.scene.items_by_id.get(c.id)
+        if it is not None:
+            it.setSelected(True)
+        self.changed()
+
+    def paste_system(self):
+        """Edit > Paste Special > Paste from system clipboard: the text on the system clipboard as a
+        comment text in the middle of the window."""
+        text = QApplication.clipboard().text().rstrip()
+        if not text:
+            return
+        pos = self.canvas.mapToScene(self.canvas.viewport().rect().center())
+        c = BdComment(self._new_id('c'), text)
+        c.x, c.y = _snap(pos.x()), _snap(pos.y())
+        self._size_comment(c)
+        self.bd.comments.append(c)
+        self._reload_scene()
+        self.scene.clearSelection()
+        it = self.scene.items_by_id.get(c.id)
+        if it is not None:
+            it.setSelected(True)
+        self.changed()
+
+    @staticmethod
+    def _size_comment(c: BdComment):
+        """Box of a comment text: its widest line, one line height per line."""
+        fm = QFontMetricsF(MONO)
+        lines = c.text.split('\n')
+        c.w = max(fm.horizontalAdvance(line) for line in lines) + 8
+        c.h = fm.height() * len(lines) + 2
+
+    def edit_comment(self, c: BdComment):
+        """Double-click on a comment text: edit it (emptied: the comment goes)."""
+        text, ok = QInputDialog.getMultiLineText(self, 'Comment Text', 'Text:', c.text)
+        if not ok or text == c.text:
+            return
+        if text.strip():
+            c.text = text.rstrip()
+            self._size_comment(c)
+        else:
+            self.bd.comments.remove(c)
+        self._reload_scene()
+        self.changed()
+
+    # -- selection helpers, Align -------------------------------------------------------
+    def _track_selection(self):
+        """Keep the selected items in the order the user selected them (Align lines up on the first)."""
+        sel = self.scene.selectedItems()
+        order = [i for i in getattr(self, '_sel_order', []) if i in sel]
+        order += [i for i in sel if i not in order]
+        self._sel_order = order
+
+    def _ordered_selection(self) -> list:
+        self._track_selection()
+        return list(self._sel_order)
+
+    def _moved(self, moved: bool):
+        """After Align / Distribute: nets follow, one undo step when something moved."""
+        if moved:
+            self._reload_scene()
+            self.changed()
+
+    def copy_picture(self):
+        """Diagram > Copy Picture: the selection (or the diagram) as a picture on the clipboard."""
+        EC.copy_picture(self.scene)
+        self.statusBar().showMessage('Picture copied to the clipboard', 3000)
+
+    def changeEvent(self, e):
+        """Activating the window records it in the Back / Forward history."""
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow() and getattr(self, '_history', None):
+            self._history.visited(self)
+            self.update_menu_states()
+        super().changeEvent(e)
+
+    # -- Find / Replace ---------------------------------------------------------------------
+    def find_replace(self, replace: bool):
+        """Edit > Find... / Replace...: instance names, net names, port names, embedded block texts and
+        comment texts; a match is shown by selecting its object. A net renamed here is renamed
+        everywhere (wires, pins, ports, Signal Table)."""
+        bd = self.bd
+
+        def show(oid):
+            def run():
+                it = self.scene.items_by_id.get(oid)
+                if it is not None:
+                    self.tabs.setCurrentIndex(0)
+                    self.scene.clearSelection(); it.setSelected(True)
+                    self.canvas.centerOn(it)
+            return run
+
+        def attr(obj, name):
+            return (lambda: getattr(obj, name)), (lambda v: setattr(obj, name, v))
+
+        def fields():
+            out = []
+            for i in bd.instances:
+                g, st = attr(i, 'name')
+                out.append(EC.TextField(f'Instance {i.name} ({i.unit})', g, st, show(i.id)))
+            seen = set()
+            for w in bd.wires:
+                if w.net and w.net not in seen:
+                    seen.add(w.net)
+                    out.append(EC.TextField(f'Net {w.net}', lambda n=w.net: n,
+                                            lambda v, n=w.net: self._rename(n, v), show(w.id)))
+            for e in bd.embedded:
+                g, st = attr(e, 'text')
+                out.append(EC.TextField(f'Embedded block {e.name}', g, st, show(e.id)))
+            for c in bd.comments:
+                if not c.group:
+                    g, st = attr(c, 'text')
+                    out.append(EC.TextField('Comment text', g, st, show(c.id)))
+            return out
+
+        def done():
+            self._reload_scene()
+            self.signals_tab.set_rows(self.bd.signals)
+            self.changed()
+        dlg = EC.FindReplaceDialog(self, fields, done, replace, self.scene.readonly)
+        dlg.show()
+        self._find_dialog = dlg
+
+    # -- connectivity table (IBD) ------------------------------------------------------------
+    def connectivity_rows(self) -> list[tuple[str, str, str, str]]:
+        """One row per net: (net, bounds, what drives it, what it goes to), as the interface-based
+        view lists the connections of a diagram."""
+        bd = self.bd
+        nets: dict[str, dict] = {}
+
+        def row(net):
+            return nets.setdefault(net, {'bounds': '', 'from': [], 'to': []})
+        for s in bd.signals:
+            row(s.name)['bounds'] = s.bounds
+        for i in bd.instances:
+            for p in i.pins:
+                if p.net:
+                    side = 'from' if p.mode == 'output' else 'to'
+                    row(p.net)[side].append(f'{i.name}.{p.name}')
+                    if p.mode == 'inout':
+                        row(p.net)['from'].append(f'{i.name}.{p.name}')
+        for p in bd.port_ios:
+            if p.name:
+                r = row(p.name)
+                (r['from'] if p.mode == 'input' else r['to']).append(f'port {p.name} ({p.mode})')
+        for w in bd.wires:
+            if w.net and (w.start.startswith('emb:') or w.end.startswith('emb:')):
+                e = next((e for e in bd.embedded if f'emb:{e.id}' in (w.start, w.end)), None)
+                if e is not None:
+                    row(w.net)['to'].append(f'embedded {e.name}')
+        return [(n, d['bounds'], ', '.join(dict.fromkeys(d['from'])), ', '.join(dict.fromkeys(d['to'])))
+                for n, d in sorted(nets.items(), key=lambda kv: kv[0].lower())]
+
+    def connectivity_table(self, editable: bool):
+        """Diagram > Edit as IBD / Visualize as IBD: the connectivity of the diagram as a table, one row
+        per net (name, bounds, drivers, loads). In Edit as IBD a net is renamed by editing its name."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTableWidget, QTableWidgetItem, QVBoxLayout
+        dlg = QDialog(self)
+        dlg.setWindowTitle(('Edit as IBD' if editable else 'Visualize as IBD') + f' - {self.bd.unit}')
+        lay = QVBoxLayout(dlg)
+        rows = self.connectivity_rows()
+        t = QTableWidget(len(rows), 4)
+        t.setHorizontalHeaderLabels(['Net', 'Bounds', 'Driven by', 'Connects to'])
+        for r, vals in enumerate(rows):
+            for c, v in enumerate(vals):
+                it = QTableWidgetItem(v)
+                if c != 0 or not editable:
+                    it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+                t.setItem(r, c, it)
+        t.resizeColumnsToContents()
+        t.horizontalHeader().setStretchLastSection(True)
+        lay.addWidget(t)
+        box = QDialogButtonBox(QDialogButtonBox.Ok | (QDialogButtonBox.Cancel if editable else QDialogButtonBox.NoButton))
+        box.accepted.connect(dlg.accept)
+        box.rejected.connect(dlg.reject)
+        lay.addWidget(box)
+        dlg.resize(820, 480)
+        if dlg.exec() and editable:
+            changed = False
+            for r, vals in enumerate(rows):
+                new = t.item(r, 0).text().strip()
+                if new and new != vals[0]:
+                    self._rename(vals[0], new)
+                    changed = True
+            if changed:
+                self._reload_scene()
+                self.signals_tab.set_rows(self.bd.signals)
+                self.changed()
 
     def _set_text_visible(self, on: bool):
         """Diagram > Text > Show / Hide Text for the selected nets and ports."""
@@ -4334,7 +4662,21 @@ class BdEditorWindow(QMainWindow):
                 self.toggle_port_text(p)
 
     def update_menu_states(self):
-        """Grey the selection commands that have nothing to act on, as HDS does."""
+        """Grey the selection commands that have nothing to act on, as the legacy tool does: Cut / Copy /
+        Delete without a selection, Paste with nothing copied, Align with fewer than two objects, Back /
+        Forward at the ends of the window history, then the Diagram commands by what is selected."""
+        acts = self.toolbar_actions
+        sel = self._ordered_selection()
+        EC.update_edit_states(acts, sel, bool(getattr(self, '_clipboard', None)), self.scene.readonly)
+        copyable = any(isinstance(i, (InstanceItem, FrameItem)) for i in sel)
+        acts['copy'].setEnabled(copyable)
+        acts['cut'].setEnabled(copyable and not self.scene.readonly)
+        hist = getattr(self, '_history', None)
+        if hist is not None:
+            acts['back'].setEnabled(hist.can_go(-1))
+            acts['forward'].setEnabled(hist.can_go(1))
+        acts['paste_system'].setEnabled(not self.scene.readonly and bool(QApplication.clipboard().text().strip()))
+        self.update_panel_states(self.scene.readonly)
         if self.scene.readonly:
             return
         ports, wires, insts = self._sel(PortIoItem), self._sel(WireItem), self._sel(InstanceItem)
@@ -4405,7 +4747,7 @@ class BdEditorWindow(QMainWindow):
     def _turn_port_to_end(self, pio: BdPortIo, end: list[float]):
         """After a net end is put on a port's wire end: the port faces its net (port_side()),
         which may be the other side than before; shift the port so that its wire end on that
-        side is exactly on the net end (the port "turns" around the net end, as in HDS)."""
+        side is exactly on the net end (the port "turns" around the net end, as in the legacy tool)."""
         side = self.scene.port_side(pio)
         pio.x, pio.y = end[0] - side * PORT_EDGE, end[1]
 
@@ -4492,7 +4834,7 @@ class BdEditorWindow(QMainWindow):
         """Apply the text typed for a net. Accepted forms:
             name                      rename only
             name[msb:lsb]             rename, and make the net that bus
-            name : type[msb:lsb]      HDS form; type is wire, reg, logic... optionally "signed"
+            name : type[msb:lsb]      the legacy form; type is wire, reg, logic... optionally "signed"
         A part left out keeps its current value. A new name that already exists joins the two
         nets after a confirmation."""
         m = re.fullmatch(r'\s*([A-Za-z_][\w$]*)\s*(?::\s*([A-Za-z_]\w*(?:\s+signed)?)?\s*)?(\[[^\]]*\])?\s*', text)
@@ -4588,6 +4930,7 @@ class BdEditorWindow(QMainWindow):
     def open_instance(self, inst: BdInstance):
         """Open the unit an instance instantiates (through the Design Manager)."""
         if self.context is not None:
+            EC.remember_parent(self.context.manager, inst.unit, self.context.unit)
             self.context.manager.open_unit_by_name(inst.unit, inst.library)
 
     # -- output ------------------------------------------------------------------------
@@ -4605,7 +4948,7 @@ class BdEditorWindow(QMainWindow):
             self.log.addItem('Generation OK - no warnings')
 
     def update_title(self):
-        """HDS title: "Project p: lib/unit/view * (Block Diagram)", the '*' right after the view
+        """legacy title: "Project p: lib/unit/view * (Block Diagram)", the '*' right after the view
         when there are unsaved changes; the page shown replaces "(Block Diagram)", e.g.
         "(Signals for struct)"."""
         b = self.bd
@@ -4617,7 +4960,7 @@ class BdEditorWindow(QMainWindow):
 
     # -- Structure Navigator (Diagram Browser) -------------------------------------------
     def _fill_navigator(self):
-        """The HDS Structure Navigator tree: Signal Table, Parameters Table, then the diagram
+        """The legacy tool Structure Navigator tree: Signal Table, Parameters Table, then the diagram
         with its Declarations/Statements (Declarations, User Declarations, Compiler Directives)
         and its Embedded Diagrams (one entry per embedded block)."""
         nav = self.navigator
@@ -4658,7 +5001,7 @@ class BdEditorWindow(QMainWindow):
                 self.canvas.centerOn(it)
 
     def _sync_navigator(self):
-        """Highlight the navigator entry of the page shown (as HDS does)."""
+        """Highlight the navigator entry of the page shown (as the legacy tool does)."""
         if not hasattr(self, 'navigator'):
             return
         want = self.tabs.currentIndex()

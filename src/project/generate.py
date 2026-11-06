@@ -1,6 +1,6 @@
 """Load graphical views and generate their HDL into the library's HDL folder.
 
-A small record (`hds/<unit>/.dhds_gen.json`) keeps the hash of every file
+A small record (`<graphics folder>/<unit>/.hdlstudio_gen.json`) keeps the hash of every file
 this tool wrote. If a target file no longer matches that hash (or was not
 written by this tool), it was edited by hand and is only overwritten when
 the caller passes force=True.
@@ -15,12 +15,12 @@ from dataclasses import dataclass, field
 from bd_model import BlockDiagram
 from codegen.bd_codegen import generate_bd
 from codegen.fsm_codegen import generate as generate_fsm
-from hds.import_bd import import_bd
-from hds.import_sm import import_sm
+from formats.import_bd import import_bd
+from formats.import_sm import import_sm
 from model import FsmView
 from .project import DesignUnit, Library, View
 
-RECORD = '.dhds_gen.json'
+RECORD = '.hdlstudio_gen.json'
 
 
 def load_view(lib: Library, unit: DesignUnit, view: View):
@@ -33,7 +33,7 @@ def load_view(lib: Library, unit: DesignUnit, view: View):
 
 
 def native_path(lib: Library, unit: str, view_name: str, kind: str) -> str:
-    """Path of a view saved in HDL Studio's own format: hds/<unit>/<view>.<kind>.json."""
+    """Path of a view saved in HDL Studio's own format: <graphics folder>/<unit>/<view>.<kind>.json."""
     return os.path.join(lib.unit_dir(unit), f'{view_name}.{kind}.json')
 
 
@@ -43,7 +43,7 @@ GENERATED_EXT = {'verilog': 'v', 'systemverilog': 'sv'}
 
 def target_path(lib: Library, unit: str, language: str, rule: str = '%(unit).%(ext)', lower: bool = True,
                 view: str = '') -> str:
-    """Generated HDL file of a unit. The rule may use %(unit), %(view) and %(ext); HDS names a
+    """Generated HDL file of a unit. The rule may use %(unit), %(view) and %(ext); legacy names a
     generated file %(unit)_%(view).%(ext), e.g. uart_tx_fsm.v."""
     ext = GENERATED_EXT['systemverilog' if language == 'systemverilog' else 'verilog']
     name = rule.replace('%(unit)', unit).replace('%(view)', view).replace('%(ext)', ext)

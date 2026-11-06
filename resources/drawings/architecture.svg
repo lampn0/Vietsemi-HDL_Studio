@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 640" font-family="Arial, Helvetica, sans-serif" font-size="13">
-  <!-- HDL Studio architecture: layers of the dhds package and the files they read / write.
+  <!-- HDL Studio architecture: layers of the code (src/) and the files they read / write.
        Edit this file by hand (plain SVG); docs/architecture.md embeds it. -->
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
@@ -49,7 +49,7 @@
   <text x="774" y="175" class="small">bd_editor.py</text>
   <text x="774" y="189" class="small">(BdScene, items)</text>
   <rect x="36" y="206" width="910" height="54" class="box gui" style="fill:#eaf3ff"/>
-  <text x="50" y="226" class="small">shared: menus.py · toolbars.py · command_names.py (HDS names, keys) · undo.py (snapshot undo) · icons.py / dm_icons.py</text>
+  <text x="50" y="226" class="small">shared: menus.py · toolbars.py · command_names.py (legacy names, keys) · undo.py (snapshot undo) · icons.py / dm_icons.py</text>
   <text x="50" y="244" class="small">dialogs: dialogs.py · bd_dialogs.py · sm_props_dialog.py · sm_machine_dialog.py · dm_options.py · main_settings.py · tables.py · props.py · text_editor.py</text>
 
   <!-- core layer -->
@@ -81,7 +81,7 @@
   <!-- io layer -->
   <text x="20" y="441" class="layer">I/O</text>
   <rect x="20" y="448" width="465" height="70" class="box io"/>
-  <text x="34" y="470" class="title">hds/  (HDS file formats)</text>
+  <text x="34" y="470" class="title">formats/  (legacy file formats)</text>
   <text x="34" y="488" class="small">sexpr.py (S-expression parse / write, byte-exact) · import_sm.py · export_sm.py</text>
   <text x="34" y="504" class="small">import_bd.py · export_sb.py (symbol ports)</text>
   <rect x="500" y="448" width="460" height="70" class="box io"/>
@@ -90,7 +90,7 @@
   <text x="514" y="504" class="small">(pyslang; regex fallback) · check_text() syntax check</text>
 
   <!-- files -->
-  <text x="20" y="548" class="layer">files (HDS layout)</text>
+  <text x="20" y="548" class="layer">files (legacy layout)</text>
   <rect x="20" y="558" width="300" height="62" class="box file"/>
   <text x="34" y="580" class="title">project.hdp</text>
   <text x="34" y="598" class="small">[hdl] / [hds] library mapping, settings,</text>
@@ -98,7 +98,7 @@
   <rect x="340" y="558" width="300" height="62" class="box file"/>
   <text x="354" y="580" class="title">&lt;lib&gt;/hds/&lt;unit&gt;/</text>
   <text x="354" y="598" class="small">fsm.sm · struct.bd · symbol.sb · *.lck</text>
-  <text x="354" y="612" class="small">*.fsm.json · *.bd.json · .dhds_gen.json</text>
+  <text x="354" y="612" class="small">*.fsm.json · *.bd.json · .hdlstudio_gen.json</text>
   <rect x="660" y="558" width="300" height="62" class="box file"/>
   <text x="674" y="580" class="title">&lt;lib&gt;/hdl/</text>
   <text x="674" y="598" class="small">*.v / *.sv: hand-written source and</text>

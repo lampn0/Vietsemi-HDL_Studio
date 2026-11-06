@@ -20,7 +20,8 @@ a = Analysis(
     [os.path.join(ROOT, 'bin', 'hdlstudio.py')],   # entry point: the Design Manager
     pathex=[os.path.join(ROOT, 'src')],               # the application code (top-level modules)
     binaries=[],
-    datas=[],                                         # icons are drawn in code: no data files
+    # icons are drawn in code; the only data files are the Vietsemi logos (About, splash, window icon)
+    datas=[(os.path.join(ROOT, 'resources', 'images', 'Vietsemi_*.png'), os.path.join('resources', 'images'))],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -24,10 +24,10 @@ from .encoding import encode
 
 IND = '  '
 # An empty line between two statements of the user's action text. It goes to the block of the
-# statement after it and is written as an indentation-only line, as HDS writes it.
+# statement after it and is written as an indentation-only line, as the legacy tool writes it.
 BLANK = '\x00'
 # Options > Verilog > Style > "Allow implicit event expression (@*) when appropriate": off by
-# default in HDS, which then writes explicit sensitivity lists (set from the preferences)
+# default in the legacy tool, which then writes explicit sensitivity lists (set from the preferences)
 IMPLICIT_EVENT = False
 
 
@@ -87,13 +87,13 @@ def split_statements(text: str) -> list[str]:
     tail = ''.join(buf)
     if tail.strip():
         if out and not _code(tail):
-            # comments after the last statement stay with that statement (and its block), as HDS
+            # comments after the last statement stay with that statement (and its block), as the legacy tool
             out[-1] += tail.rstrip()
         else:
             out.append(tail)
     stmts: list[str] = []
     for s in out:
-        # an empty line the user left between two statements is kept (HDS keeps it too)
+        # an empty line the user left between two statements is kept (the legacy tool keeps it too)
         blank_before = bool(stmts) and re.match(r'[ \t]*\n[ \t]*\n', s) is not None
         s = s.strip('\n')
         if not s.strip():
@@ -215,7 +215,7 @@ class FsmGenerator:
       3. render_ns() writes the next-state block from the trees; render_act() writes the
          actions of the tree that belong to one block ('out' or 'clk').
       4. generate() / machine() assemble header, ports, declarations, the three always blocks
-         and the concurrent statements, in the order and layout HDS uses.
+         and the concurrent statements, in the order and layout the legacy tool uses.
     Warnings (unreachable states, unknown links, ...) are collected in self.warnings.
     """
     def __init__(self, view: FsmView, language: str | None = None):
@@ -260,7 +260,7 @@ class FsmGenerator:
                 if out and out[-1] != BLANK and nxt is not None and self.block(nxt) == blk:
                     out.append(s)
             elif self.block(s) == blk and _code(s):
-                # a comment-only action (no code at all) is not written, as HDS
+                # a comment-only action (no code at all) is not written, as the legacy tool
                 out.append(s)
         return out
 
@@ -288,7 +288,7 @@ class FsmGenerator:
         """The first line(s) of a combinational always block whose statements are `body`.
 
         SystemVerilog: always_comb. Verilog: "always @ *" when Options > Verilog > Style >
-        "Allow implicit event expression (@*)" is set (IMPLICIT_EVENT); otherwise, as HDS
+        "Allow implicit event expression (@*)" is set (IMPLICIT_EVENT); otherwise, as the legacy tool
         generates by default, an explicit sensitivity list: every signal the block reads (a
         declared signal that appears in it and that the block does not assign), in alphabetical
         order, one per line:
@@ -304,7 +304,7 @@ class FsmGenerator:
         code = '\n'.join(body)
         code = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', ' ', code, flags=re.S)
         # read = named anywhere but as the target of an assignment: `tx = tx;` reads tx, and
-        # HDS lists it (checked with HDS 2021.1, tests/hds_sync); the index of a target
+        # The legacy tool lists it (checked with the legacy tool); the index of a target
         # (`a[i] = ...`) is read too
         rhs = self._ASSIGNED_RE.sub(lambda mo: ' ' * len(mo.group(1)) + mo.group(0)[len(mo.group(1)):], code)
         read = sorted(set(self._IDENT_RE.findall(rhs)) & self._known_signals())
@@ -347,10 +347,10 @@ class FsmGenerator:
         if len(other) > 1:
             self.warnings.append(f'{src.name}: more than one unconditional transition, extra ones ignored')
         if other and branches and branches[-1].cond is not None:
-            # HDS refuses to generate such a machine ("This transition does not have a condition
+            # The legacy tool refuses to generate such a machine ("This transition does not have a condition
             # but is not the lowest priority."); HDL Studio puts the unconditional one last
             self.warnings.append(f'{src.name}: a transition without condition is not the lowest priority '
-                                 '(HDS refuses to generate this)')
+                                 '(the legacy tool refuses to generate this)')
         branches = cond + other[:1]
         if not other:
             branches.append(Branch(None, [], Leaf(None)))
@@ -376,7 +376,7 @@ class FsmGenerator:
     @staticmethod
     def _indent(lines: list[str], level: int) -> list[str]:
         """Indent every line (and every sub-line of a multi-line entry) by `level` steps of IND.
-        BLANK markers become indentation-only lines, as HDS writes the user's empty lines.
+        BLANK markers become indentation-only lines, as the legacy tool writes the user's empty lines.
         """
         out = []
         for l in lines:
@@ -411,7 +411,7 @@ class FsmGenerator:
             head = f'{head} ({b.cond})' if b.cond is not None else 'else'
             inner = self.render_ns(b.body, ns, src)
             if b.cond is None and i > 0 and isinstance(b.body, Chain) and inner and inner[0].startswith('if '):
-                # the else branch leads to another decision: HDS chains it as "else if (...)"
+                # the else branch leads to another decision: the legacy tool chains it as "else if (...)"
                 lines += ['else ' + inner[0]] + inner[1:]
                 continue
             wrap = isinstance(b.body, Chain) and i > 0
@@ -459,16 +459,16 @@ class FsmGenerator:
             last = i == len(rendered) - 1
             if (head == 'else' and isinstance(b.body, Chain) and not self.only(b.pre, blk)
                     and inner and inner[0].startswith('if ')):
-                # the else branch leads to another decision: HDS chains it as "else if (...)"
+                # the else branch leads to another decision: the legacy tool chains it as "else if (...)"
                 lines += ['else ' + inner[0]] + inner[1:]
                 continue
             if isinstance(b.body, Leaf):
-                # The branch body is the user's action text: HDS writes it bare only when it is
+                # The branch body is the user's action text: the legacy tool writes it bare only when it is
                 # one single-line statement; an if/case/several lines go inside begin ... end.
                 single_ok = self._is_single_line(inner or [])
             else:
                 # The body comes from a junction (a nested decision of the diagram). Observed in
-                # HDS 2024.2 output, the inner "if" is written bare when
+                # legacy output, the inner "if" is written bare when
                 #   - it is the last branch and the inner if ends with its own else, or has only
                 #     one-line statements (no begin ... end inside);
                 #   - it is the first branch and the inner if ends with its own else;
@@ -528,7 +528,7 @@ class FsmGenerator:
 
     def _item(self, label: str, inner: list[str] | None, level: int, always_block: bool = False) -> list[str]:
         """A case item `label` with its body: bare when the body is one statement, else begin ... end
-        (always begin ... end when `always_block`, as HDS writes the state items).
+        (always begin ... end when `always_block`, as the legacy tool writes the state items).
         """
         if inner and not always_block and (self._is_single_line(inner) or self._is_single_construct(inner)):
             return [label + ' '] + self._indent(inner, level + 1)
@@ -566,7 +566,7 @@ class FsmGenerator:
         return s.type or 'wire'
 
     def _port_lines(self) -> list[str]:
-        """The ANSI port list: inputs, then inouts, then outputs, each group by name (as HDS)."""
+        """The ANSI port list: inputs, then inouts, then outputs, each group by name (as the legacy tool)."""
         order = {'input': 0, 'inout': 1, 'output': 2}
         ports = sorted((s for s in self.v.signals if s.mode in order), key=lambda s: (order[s.mode], s.name))
         return port_lines([(s.mode, self._type(s, True) + (' signed' if s.signed else ''), s.bounds, s.name,
@@ -638,7 +638,7 @@ class FsmGenerator:
             lines += self.machine(m, prefix=f'{m.name}_' if multi else '')
         lines.append('')
         if self.clocked_out or v.concurrent_statements.strip():
-            # HDS leaves this comment out when there are no concurrent statements
+            # The legacy tool leaves this comment out when there are no concurrent statements
             lines.append('// Concurrent Statements')
         if self.clocked_out:
             lines.append('// Clocked output assignments')
@@ -650,7 +650,7 @@ class FsmGenerator:
         if v.concurrent_statements.strip():
             lines += v.concurrent_statements.rstrip('\n').split('\n')
         lines.append(f'endmodule // {v.unit}')
-        if v.end_module_directives.strip():             # after the endmodule keyword (HDS user manual)
+        if v.end_module_directives.strip():             # after the endmodule keyword (legacy user manual)
             lines += v.end_module_directives.rstrip('\n').split('\n')
         lines.append('')
         if self.sv:
@@ -740,7 +740,7 @@ class FsmGenerator:
             body.append(f'{IND}default: ')
             body.append(f'{IND * 2}{ns} = {recovery[0]};')
         else:
-            # no recovery state: HDS writes no default branch, two empty lines in its place
+            # no recovery state: the legacy tool writes no default branch, two empty lines in its place
             body += ['', '']
         body.append('endcase')
         body = self._wrap_interrupts(interrupts, body, lambda acts, dst: [f'{ns} = {dst};'])
@@ -751,7 +751,7 @@ class FsmGenerator:
 
         # ---- output block
         # default values: outputs first, then the internal (local) signals under their own
-        # comment, as HDS writes them
+        # comment, as the legacy tool writes them
         defaults = sorted((s for s in v.signals if s.mode == 'output' and s.scheme == 'comb' and s.default),
                           key=lambda s: s.name)
         defaults_r = sorted((s for s in self.registered_out if s.default), key=lambda s: s.name)
@@ -769,7 +769,7 @@ class FsmGenerator:
         case_out = self._action_case(m, cs, trees, recovery, 'out')
         pre_out = self.only(split_statements(v.global_pre_actions), 'out')
         if pre_out:
-            # HDS 2021.1: a comment line above the global pre actions, an empty line after
+            # The legacy tool: a comment line above the global pre actions, an empty line after
             # them when the action case follows, no empty line after the default assignments
             out_lines += ['// Global Actions'] + pre_out + ([''] if case_out else [])
         # as in the clocked block: the actions (and the interrupts around them) only when some
@@ -779,8 +779,8 @@ class FsmGenerator:
                                                action_block=True)
         out_lines += self.only(split_statements(v.global_post_actions), 'out')
         if n_def and len(out_lines) > n_def and out_lines[n_def] not in ('', '// Global Actions'):
-            out_lines.insert(n_def, '')         # HDS: an empty line after the default assignments
-        if out_lines:                           # HDS leaves out an output block with nothing in it
+            out_lines.insert(n_def, '')         # The legacy tool: an empty line after the default assignments
+        if out_lines:                           # The legacy tool leaves out an output block with nothing in it
             lines += ['', '//' + '-' * 65, f'// Output Block for {title}', '//' + '-' * 65]
             lines += self.comb_head(out_lines) + ['begin : ' + prefix + 'output_block_proc']
             lines += self._indent(out_lines, 1)
@@ -814,17 +814,17 @@ class FsmGenerator:
         else:
             run.append(f'{cs} <= {ns};')
         run += [f'{s.name} <= {s.name}{v.registered_affix};' for s in sorted(self.registered_out, key=lambda s: s.name)]
-        # clocked outputs with a default value: HDS sets their internal (_cld) signal to it at
-        # the start of every clock (checked with HDS 2021.1, tests/hds_sync port case)
+        # clocked outputs with a default value: the legacy tool sets their internal (_cld) signal to it at
+        # the start of every clock (checked with the legacy tool)
         cld_defaults = sorted((s for s in self.clocked_out if s.default), key=lambda s: s.name)
         if cld_defaults:
             run += ['// Default Assignment To Internals'] + \
                 [f'{s.name}{v.clocked_affix} <= {s.default};' for s in cld_defaults]
         pre_clk = self.only(split_statements(v.global_pre_actions), 'clk')
         if pre_clk:
-            run += ['// Global Internal Actions'] + pre_clk     # HDS's comment line above them
+            run += ['// Global Internal Actions'] + pre_clk     # The legacy tool's comment line above them
         case_clk = self._action_case(m, cs, trees, recovery, 'clk')
-        # HDS writes the clocked actions (and the interrupts around them) only when some
+        # The legacy tool writes the clocked actions (and the interrupts around them) only when some
         # statement goes to the clocked block
         if case_clk or any(self.only(acts, 'clk') for _, _, acts in interrupts):
             if not interrupts:
@@ -834,14 +834,14 @@ class FsmGenerator:
         run += self.only(split_statements(v.global_post_actions), 'clk')
         enable = next((s for s in v.signals if s.category == 'enable'), None)
         if enable is not None:
-            # a machine with an enable signal only runs while it is set (as HDS writes it)
+            # a machine with an enable signal only runs while it is set (as the legacy tool writes it)
             run = [f'if ({enable.expression or enable.name}) begin'] + self._indent(run, 1) + ['end']
         if rst_cond is not None:
             values = [f'{s.name}{v.clocked_affix} <= {s.reset};' for s in sorted(self.clocked_out, key=lambda s: s.name) if s.reset]
             values += [f'{s.name} <= {s.reset};' for s in sorted(self.registered_out, key=lambda s: s.name) if s.reset]
             values += [f'{s.name} <= {s.reset};' for s in sorted(v.signals, key=lambda s: s.name)
                        if s.mode == 'local' and s.scheme == 'clocked' and s.reset]
-            # the "// Reset Values" comment only when there are reset values (as HDS)
+            # the "// Reset Values" comment only when there are reset values (as the legacy tool)
             resets = [f'{cs} <= {reset_dest or names[0]};'] + (['// Reset Values'] + values if values else [])
             if reset_dest is None:
                 self.warnings.append('No reset point: reset goes to the first state')
@@ -856,9 +856,9 @@ class FsmGenerator:
     def _action_case(self, m: Machine, cs: str, trees, recovery, blk: str) -> list[str]:
         """The "Combined Actions" case statement of block `blk` ('out' or 'clk'): for every state its
         in-actions and the actions of its transitions that go to this block. Returns [] when the
-        block has nothing to do (HDS then leaves the case out).
+        block has nothing to do (the legacy tool then leaves the case out).
         """
-        # The comment above the action case. With next-state clocking HDS writes no comment in
+        # The comment above the action case. With next-state clocking the legacy tool writes no comment in
         # the output block (an indentation-only line) and a different one in the clocked block.
         title = '// Combined Actions'
         if m.next_state_clocking:
@@ -876,12 +876,12 @@ class FsmGenerator:
                 empty.append(st.name)
         rec = self.only(recovery[1], blk) if recovery else []
         if empty and len(lines) > 2 and (rec or recovery is None):
-            # HDS lists the states without actions together, with an empty begin ... end: when
+            # The legacy tool lists the states without actions together, with an empty begin ... end: when
             # the recovery branch has actions here (they must not fall into it), and when the
-            # machine has no recovery point at all (checked against HDS 2024.2 output)
+            # machine has no recovery point at all (checked against legacy output)
             lines.append(IND + (',\n' + IND).join(empty) + ': begin')
             lines.append(IND + 'end')
-        # HDS always writes the default branch as begin ... end, even for one statement
+        # The legacy tool always writes the default branch as begin ... end, even for one statement
         lines += self._item(f'{IND}default:', rec, 1, always_block=True) if rec else []
         lines.append('endcase')
         if len(lines) == 3 and not rec:

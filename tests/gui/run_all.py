@@ -29,8 +29,8 @@ def main() -> int:
     results = []
     for path in tests:
         name = os.path.basename(path)[:-3]
-        tmp = tempfile.mkdtemp(prefix=f'dhds_{name}_')
-        env = dict(os.environ, DHDS_TEST_TMP=tmp)
+        tmp = tempfile.mkdtemp(prefix=f'hdlstudio_{name}_')
+        env = dict(os.environ, HDLSTUDIO_TEST_TMP=tmp)
         t0 = time.time()
         try:
             run = subprocess.run([sys.executable, '-u', path], env=env, capture_output=True, text=True,
@@ -51,6 +51,8 @@ def main() -> int:
         for l in failed:
             print('        ' + l)
         if broken:
+            # e.g. 0xc0000005 (a crash in Qt on Windows) after every check passed
+            print(f'        exited with code {code} ({code & 0xFFFFFFFF:#x}) without a FAIL line; last lines:')
             print('        ' + '\n        '.join(lines[-15:]))
     bad = [r for r in results if r[1] != 'ok']
     print(f'\n{len(results) - len(bad)}/{len(results)} test files passed')
