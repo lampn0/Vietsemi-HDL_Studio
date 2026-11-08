@@ -788,18 +788,23 @@ class FsmGenerator:
 
         # ---- clocked block
         clk = next((s for s in v.signals if s.category == 'clock'), None)
-        rst_sig = next((s for s in v.signals if s.category == 'reset'), None)
+        # resets: an asynchronous one is in the sensitivity list and tested first; a synchronous one
+        # is only tested inside the clocked block (as the legacy tool generates them)
+        rst_sigs = sorted((s for s in v.signals if s.category == 'reset'), key=lambda s: s.sync)
         if clk is None:
             self.warnings.append('No clock signal: set Category = clock in the Signals table')
             clk_expr = 'posedge clk'
         else:
             clk_expr = clk.expression or f'posedge {clk.name}'
         sens = [clk_expr]
-        rst_cond = None
-        if rst_sig is not None:
-            rst_cond = rst_sig.expression or f'!{rst_sig.name}'
-            neg = rst_cond.lstrip().startswith(('!', '~'))
-            sens.append(f'{"negedge" if neg else "posedge"} {rst_sig.name}')
+        rst_conds = []
+        for rst_sig in rst_sigs:
+            cond = rst_sig.expression or f'!{rst_sig.name}'
+            rst_conds.append(cond)
+            if not rst_sig.sync:
+                neg = cond.lstrip().startswith(('!', '~'))
+                sens.append(f'{"negedge" if neg else "posedge"} {rst_sig.name}')
+        rst_cond = rst_conds[0] if rst_conds else None
         sep = ' or ' if self.sv else ', '
         if self.sv:
             lines += ['', '//' + '-' * 65, f'// Clocked Block for {title}', '//' + '-' * 65,
@@ -845,8 +850,11 @@ class FsmGenerator:
             resets = [f'{cs} <= {reset_dest or names[0]};'] + (['// Reset Values'] + values if values else [])
             if reset_dest is None:
                 self.warnings.append('No reset point: reset goes to the first state')
-            blk = [f'if ({rst_cond}) begin'] + self._indent(resets, 1) + ['end', 'else ', 'begin'] + \
-                self._indent(run, 1) + ['end']
+            # each reset's "else" holds the next one (asynchronous first), the last one the machine
+            blk = run
+            for cond in reversed(rst_conds):
+                blk = [f'if ({cond}) begin'] + self._indent(resets, 1) + ['end', 'else ', 'begin'] + \
+                    self._indent(blk, 1) + ['end']
         else:
             blk = run
         lines += self._indent(blk, 1)

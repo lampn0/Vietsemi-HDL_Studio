@@ -86,8 +86,10 @@ QTest.keyClick(vp, Qt.Key_F, Qt.ControlModifier); QTest.qWait(200)
 dlg = getattr(w, '_find_dialog', None)
 ok('Ctrl+F opens Find', dlg is not None and dlg.isVisible())
 if dlg is not None:
-    dlg.find.setText(w.machine.states[0].name); dlg.find_all()
-    ok(f'Find lists the state ({dlg.status.text()})', dlg.results.count() >= 1)
+    ok(f'Find and Replace dialog: {dlg.windowTitle()}', dlg.windowTitle().startswith('Find and Replace - '))
+    QTest.keyClicks(dlg.find.lineEdit(), w.machine.states[0].name)
+    click(dlg.b_more); click(dlg.b_all)
+    ok(f'Find All lists the state ({dlg.status.text()})', dlg.results.rowCount() >= 1)
     dlg.close()
 
 click(button(w, 'panel'))

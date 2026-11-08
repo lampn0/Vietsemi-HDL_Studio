@@ -1166,10 +1166,11 @@ class DesignManager(QMainWindow):
         for w in list(self.editors.values()):
             w.close()
 
-    def page_setup(self):
-        """File > Page Setup..."""
+    def page_setup(self, parent=None):
+        """File > Page Setup... (`parent`: the window it is asked from, a diagram editor or this one;
+        the dialog opens over it, so that window stays in front)."""
         from .dm_options import PageSetupDialog
-        dlg = PageSetupDialog(self.prefs, self)
+        dlg = PageSetupDialog(self.prefs, parent or self)
         if dlg.exec():
             self.log('Page setup saved to ' + self.prefs.path())
 
@@ -1236,15 +1237,16 @@ class DesignManager(QMainWindow):
         for k, w in enumerate(wins, 1):
             m.addAction(f'&{k} - {w.windowTitle()}', lambda w=w: (w.show(), w.raise_(), w.activateWindow()))
 
-    def _show_shortcuts(self):
+    def _show_shortcuts(self, parent=None):
         """Help > Keyboard Shortcuts: the shortcuts of both editors (gui/shortcuts_dialog.py)."""
         from .shortcuts_dialog import show_shortcuts
-        show_shortcuts(self)
+        show_shortcuts(parent or self)
 
-    def main_settings(self):
-        """Options > Main...; applies the recovery-file settings when something was saved."""
+    def main_settings(self, parent=None):
+        """Options > Main...; applies the recovery-file settings when something was saved. The dialog
+        opens over `parent` (the diagram it is asked from), else over the Design Manager."""
         from .main_settings import MainSettingsDialog
-        dlg = MainSettingsDialog(self.prefs, self)
+        dlg = MainSettingsDialog(self.prefs, parent or self)
         dlg.exec()
         if dlg.applied:
             self._apply_save_settings()
@@ -1494,6 +1496,15 @@ class DesignManager(QMainWindow):
         save the HDL parse cache. False when an editor refused to close.
         """
         for w in list(self.editors.values()):
+            text = getattr(w, 'editor', None)
+            if getattr(w, 'dirty', False) or (hasattr(text, 'document') and text.document().isModified()):
+                # the editor asks Save / Discard / Cancel: bring it to the front first, so that its
+                # question is not hidden behind the Design Manager (as the legacy tool shows each
+                # modified diagram with its question)
+                if w.isMinimized():
+                    w.showNormal()
+                w.show(); w.raise_(); w.activateWindow()
+                QApplication.processEvents()
             if not w.close():
                 return False
         while self.tabs.count() > 1:
@@ -2265,10 +2276,10 @@ class DesignManager(QMainWindow):
             parts.append(self.prefs.package_refs.strip('\n'))
         return '\n'.join(t for t in parts if t)
 
-    def verilog_options(self):
-        """Options > Verilog..."""
+    def verilog_options(self, parent=None):
+        """Options > Verilog... (over `parent`, the diagram it is asked from, else the Design Manager)"""
         from .dm_options import VerilogOptionsDialog
-        dlg = VerilogOptionsDialog(self.prefs, self, self.project)
+        dlg = VerilogOptionsDialog(self.prefs, parent or self, self.project)
         dlg.exec()
         if dlg.applied:
             self._apply_verilog_options()

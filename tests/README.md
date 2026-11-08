@@ -20,6 +20,10 @@ test. They check:
 | `TestLayout` | Toolbar titles and button order (Standard, State / Block Diagram Tools, HDL Tools, Tasks), every toolbar icon drawn, menu titles in the legacy order, no legacy product names |
 | `TestStateDiagram` | Legacy menu entries and shortcuts (F8, Ctrl+F2), buttons enabled by the selection, Copy / Paste and Align, Find / Replace (links follow a renamed state), Reverse Direction, Change To, concurrent machines and signals, hierarchical states (Open Down / Open Up), comment texts and panels saved in the JSON, Paste from system clipboard, Document And Visualize |
 | `TestBlockDiagram` | Legacy menu entries, Align and Undo, Comment Text, the connectivity table (IBD), Connect By Name, Find, panels saved in the JSON, Open Down then Open Up |
+| `TestFindDialog` | The Find and Replace dialog: title, tabs and buttons as the legacy one (with and without More), Clear Constraints and Reg. Exp. Syntax enabling, Find Next opening the text with the match selected, the end of the search and Wrap search, Find All rows and Search selected objects, Replace then Replace All, regular expression groups, the block diagram's object kinds and a net renamed everywhere |
+| `TestFindHighlight` | Find Next: a state name opened in place with the match selected in blue, a comment text marked, a block diagram instance name opened in place, the legacy End of search and Nothing was found messages |
+| `TestTables` | Signals and Parameters Tables: a new diagram's legacy columns, widths and frozen columns, Category / Scheme / Assign In texts, grey (not editable) cells, Assign In <none>, a new signal typed in the last row, Category writing the expression, deleting rows, sorting, filtering, cell formats and column widths kept in the layout, the table page's menus and toolbars, parameters |
+| `TestSheetLayout` | The table layout read from a legacy `fsm.sm` (skipped without `HDLSTUDIO_SAMPLES`) |
 | `TestEditorCommon` | The Back / Forward window history |
 
 ```

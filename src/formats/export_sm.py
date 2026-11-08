@@ -35,7 +35,7 @@ import copy
 import os
 from typing import Any, Callable, Iterator
 
-from model import FsmView, Machine
+from model import CATEGORY_CODES, FsmView, Machine, category_label
 from .import_sm import SCALE, _geo_sig, import_sm
 from .sexpr import Atom, Document, Node, Ref, parse_file, write_file
 
@@ -843,7 +843,6 @@ def _write_decl_blocks(doc: Document, view: FsmView, orig: FsmView, warn: list[s
 # -- the Signals Table --------------------------------------------------------------------
 # Signal -> the .sm's codes (import_sm reads them back with the inverse maps)
 _MODE_CODE = {'input': None, 'output': 1, 'inout': 2, 'local': 4}
-_CAT_CODE = {'data': None, 'clock': 1, 'reset': 8, 'enable': 12}
 _SCHEME_CODE = {'comb': None, 'clocked': 1, 'registered': 2}
 
 
@@ -893,7 +892,7 @@ def _port_fields(leaf: Node, s, order: int | None) -> None:
     put(decl, 'iv', s.value, ('n', 't', 'b', 's', 'eolc', 'o'))
     put(decl, 'ub', s.array, ('n', 't', 'b', 's', 'eolc', 'o', 'iv'))
     driven = s.mode in ('output', 'local')
-    put(leaf, 'cat', _CAT_CODE.get(s.category), ('port', 'uid'))
+    put(leaf, 'cat', CATEGORY_CODES.get(category_label(s)), ('port', 'uid'))
     put(leaf, 'scheme', _SCHEME_CODE.get(s.scheme) if driven else None, ('port', 'uid', 'cat'))
     put(leaf, 'expr', s.expression if s.category != 'data' else '', ('port', 'uid', 'cat', 'scheme'))
     put(leaf, 'defVal', s.default if driven else '', ('port', 'uid', 'cat', 'scheme', 'expr'))
@@ -905,7 +904,7 @@ def _port_fields(leaf: Node, s, order: int | None) -> None:
 def _sig_key(s) -> tuple:
     """Every Signal field that matters for the file, as a tuple (to compare two signals)."""
     return tuple(getattr(s, f) for f in ('name', 'mode', 'type', 'bounds', 'signed', 'category', 'expression',
-                                          'scheme', 'default', 'reset', 'comment', 'value', 'array'))
+                                          'scheme', 'default', 'reset', 'comment', 'value', 'array', 'sync', 'detail'))
 
 
 def _write_signals(doc: Document, view: FsmView, orig: FsmView, alloc: '_Alloc', warn: list[str]) -> set[int]:

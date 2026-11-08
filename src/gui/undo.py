@@ -31,6 +31,11 @@ class SnapshotUndo(QObject):
         self._snapshot, self._restore = snapshot, restore
         self._undo: list[str] = []
         self._redo: list[str] = []
+        # the name of the command of each step (the legacy popup shows "Undo (Cut)"), parallel to
+        # _undo / _redo; `pending_label` names the edit not recorded yet
+        self._undo_labels: list[str] = []
+        self._redo_labels: list[str] = []
+        self.pending_label = ''
         self._limit = limit
         self._restoring = False
         # The snapshot that matches the file on disk (taken when the view is opened and after
@@ -46,6 +51,7 @@ class SnapshotUndo(QObject):
         """Start a fresh history from the model as it is now, which is taken as saved."""
         self._timer.stop()
         self._undo, self._redo = [self._snapshot()], []
+        self._undo_labels, self._redo_labels, self.pending_label = [''], [], ''
         self.clean = self._undo[0]
         self.changed.emit()
 
@@ -78,8 +84,12 @@ class SnapshotUndo(QObject):
         if self._undo and snap == self._undo[-1]:
             return
         self._undo.append(snap)
+        self._undo_labels.append(self.pending_label)
+        self.pending_label = ''
         del self._undo[:-self._limit]
+        del self._undo_labels[:-self._limit]
         self._redo.clear()
+        self._redo_labels.clear()
         self.changed.emit()
 
     def flush(self):
@@ -94,6 +104,7 @@ class SnapshotUndo(QObject):
         if len(self._undo) < 2:
             return
         self._redo.append(self._undo.pop())
+        self._redo_labels.append(self._undo_labels.pop() if self._undo_labels else '')
         self._apply(self._undo[-1])
 
     def redo(self):
@@ -103,6 +114,7 @@ class SnapshotUndo(QObject):
             return
         snap = self._redo.pop()
         self._undo.append(snap)
+        self._undo_labels.append(self._redo_labels.pop() if self._redo_labels else '')
         self._apply(snap)
 
     def _apply(self, snap: str):
@@ -117,6 +129,16 @@ class SnapshotUndo(QObject):
     def can_undo(self) -> bool:
         """True when there is a step to undo (or edits waiting to become one)."""
         return len(self._undo) > 1 or self._timer.isActive()
+
+    def undo_label(self) -> str:
+        """Name of the command the next Undo takes back ('' when unknown)."""
+        if self._timer.isActive():
+            return self.pending_label
+        return self._undo_labels[-1] if len(self._undo) > 1 and self._undo_labels else ''
+
+    def redo_label(self) -> str:
+        """Name of the command the next Redo does again ('' when unknown)."""
+        return self._redo_labels[-1] if self._redo and self._redo_labels else ''
 
     def can_redo(self) -> bool:
         """True when there is an undone step to redo."""

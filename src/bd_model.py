@@ -166,6 +166,25 @@ class BdWire:
 
 
 @dataclass
+class BdTextBlock:
+    """One of the two text blocks the legacy tool draws on a block diagram: 'decl' (the Declarations block:
+    its label, and the ports / diagram signals declared when `contents` is shown) or 'dirs' (the Compiler
+    Directives: title, Pre- / Post- / End-module directives and their text). Their text is the diagram's;
+    this is where the block is and whether it shows."""
+    id: str                     # 'decl' | 'dirs'
+    x: float = 0.0
+    y: float = 0.0
+    visible: bool = True        # Hide Text / Object Visibility
+    contents: bool = False      # 'decl': the Ports: / Diagram Signals: sections shown
+
+
+def _text_blocks() -> list:
+    """The text blocks of a new diagram, where the legacy tool puts them (Declarations at the origin,
+    Compiler Directives 20000 units right of it)."""
+    return [BdTextBlock('decl', 0.0, 0.0), BdTextBlock('dirs', 20000 / 75, 0.0)]
+
+
+@dataclass
 class BdFrame:
     """Generate frame. FOR: spec is the range "[lb:rb]" (instances inside become instance
     arrays); IF: spec is the condition, either "`ifdef MACRO" / "`ifndef MACRO" or a
@@ -182,6 +201,14 @@ class BdFrame:
     h: float = 200.0
     show_label: bool = True     # title text visible on the diagram
     show_number: bool = True    # sequence number box visible
+    # appearance (Edit Appearance), as the legacy tool draws a new frame: a grey dashed outline, not filled;
+    # line_color '' = the colour of the frame kind
+    fg: str = '#ffffff'
+    bg: str = '#ffffff'
+    line_color: str = ''
+    fill_style: str = 'none'
+    line_style: str = 'dash'
+    line_width: int = 1
 
     @property
     def title(self) -> str:
@@ -232,6 +259,9 @@ class BlockDiagram:
     junctions: list[BdJunction] = field(default_factory=list)
     # Change Style: net name -> 'bus' | 'signal' when drawn other than its bounds suggest
     net_styles: dict[str, str] = field(default_factory=dict)
+    # layout of the Signal Table / Parameters Table pages (formats.sheet; {} = a new diagram's)
+    signals_sheet: dict = field(default_factory=dict)
+    params_sheet: dict = field(default_factory=dict)
     pre_module_directives: str = ''
     post_module_directives: str = ''
     end_module_directives: str = ''
@@ -242,6 +272,7 @@ class BlockDiagram:
     # editor opens there, as the legacy tool does, when it has no view of its own for the diagram
     view_area: list[float] | None = None
     header: str = ''
+    text_blocks: list[BdTextBlock] = field(default_factory=_text_blocks)
 
     def frame_path(self, x: float, y: float) -> list[BdFrame]:
         """Frames around a point, outermost first."""
@@ -276,7 +307,7 @@ class BlockDiagram:
 
 _LISTS = {'signals': Signal, 'parameters': Parameter, 'instances': BdInstance, 'embedded': BdEmbedded,
           'port_ios': BdPortIo, 'wires': BdWire, 'params': Parameter, 'pins': BdPin, 'frames': BdFrame,
-          'comments': BdComment, 'junctions': BdJunction, 'panels': Panel}
+          'comments': BdComment, 'junctions': BdJunction, 'panels': Panel, 'text_blocks': BdTextBlock}
 
 
 def _build(cls, data: dict) -> Any:

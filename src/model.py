@@ -42,10 +42,76 @@ class Signal:
     delay: str = ''
     expansion: str = ''              # Verilog net expansion: '' | scalared | vectored
     strength: str = ''               # trireg charge strength: '' | small | medium | large
+    sync: bool = False               # reset: synchronous (tested in the clocked block, not in its sensitivity)
+    detail: str = ''                 # clock / reset / enable written by hand: 'specify' (or 'gated' clock)
     @property
     def is_driven(self) -> bool:
         """True when the state machine itself assigns this signal (an output or local with a scheme)."""
         return self.mode in ('output', 'local') and self.scheme != 'none'
+
+
+# The Category column of the Signals Table, as the legacy tool lists it, and the code its files keep
+# for each (the codes 1, 2, 8, 9, 12, 13, 14 and 15 are read from legacy files and the HDL the
+# legacy tool generated from them; the others follow the same order).
+CATEGORY_LABELS = ['Clock (Falling)', 'Clock (Gated)', 'Clock (Rising)', 'Clock (Specify)', 'Data',
+                   'Enable (High)', 'Enable (Low)', 'Enable (Specify)', 'Reset (Async High)', 'Reset (Async Low)',
+                   'Reset (Async Specify)', 'Reset (Sync High)', 'Reset (Sync Low)', 'Reset (Sync Specify)']
+CATEGORY_CODES = {'Clock (Rising)': 1, 'Clock (Falling)': 2, 'Clock (Gated)': 3, 'Clock (Specify)': 4,
+                  'Reset (Async Low)': 8, 'Reset (Async High)': 9, 'Reset (Async Specify)': 10,
+                  'Reset (Sync Low)': 11, 'Reset (Sync High)': 12, 'Reset (Sync Specify)': 13,
+                  'Enable (Low)': 14, 'Enable (High)': 15, 'Enable (Specify)': 16}
+
+
+def _active_low(expr: str) -> bool:
+    """Whether a reset / enable expression is active low ("!rst", "~rst", "rst = '0'", "rst == 0")."""
+    e = expr.replace(' ', '')
+    return e.startswith(('!', '~', 'not')) or e.endswith(("='0'", '==0', "==1'b0"))
+
+
+def category_label(s: 'Signal') -> str:
+    """The Category of a signal as the legacy Signals Table shows it: Data, Clock (Rising), Reset (Sync
+    Low), ..."""
+    expr = (s.expression or '').strip()
+    if s.category == 'clock':
+        if s.detail in ('gated', 'specify'):
+            return f'Clock ({s.detail.capitalize()})'
+        return 'Clock (Falling)' if expr.startswith('negedge') or expr.replace(' ', '').endswith("='0'")             else 'Clock (Rising)'
+    if s.category == 'reset':
+        mode = 'Sync' if s.sync else 'Async'
+        level = 'Specify' if s.detail == 'specify' else 'Low' if _active_low(expr) else 'High'
+        return f'Reset ({mode} {level})'
+    if s.category == 'enable':
+        return 'Enable (Specify)' if s.detail == 'specify' else             'Enable (Low)' if _active_low(expr) else 'Enable (High)'
+    return 'Data'
+
+
+def set_category_label(s: 'Signal', label: str, keep_expression: bool = False) -> None:
+    """Give a signal the Category `label` (one of CATEGORY_LABELS): its category, sync / detail and
+    the matching expression ("posedge clk", "!rst_n", ...). A Specify category keeps an expression
+    of the same category (it is written by hand); `keep_expression` keeps it in any case (a file
+    read back)."""
+    t = label.lower()
+    was = s.category
+    s.sync, s.detail = False, ''
+    if t.startswith('clock'):
+        s.category = 'clock'
+        if 'gated' in t or 'specify' in t:
+            s.detail = 'gated' if 'gated' in t else 'specify'
+            expr = s.expression if was == 'clock' and s.expression else f'posedge {s.name}'
+        else:
+            expr = f'{"negedge" if "falling" in t else "posedge"} {s.name}'
+    elif t.startswith(('reset', 'enable')):
+        s.category = 'reset' if t.startswith('reset') else 'enable'
+        s.sync = 'sync' in t and 'async' not in t
+        if 'specify' in t:
+            s.detail = 'specify'
+            expr = s.expression if was == s.category and s.expression else s.name
+        else:
+            expr = ('!' if 'low' in t else '') + s.name
+    else:
+        s.category, expr = 'data', ''
+    if not keep_expression:
+        s.expression = expr
 
 
 @dataclass
@@ -267,6 +333,10 @@ class FsmView:
     decl_pos: dict = field(default_factory=dict)
     # the declaration blocks hidden on the diagram (the legacy tool: their title text has isHidden 1)
     decl_hidden: list = field(default_factory=list)
+    # layout of the Signals Table / Parameters Table pages: column order and widths, frozen columns,
+    # row order, cell formats (formats.sheet; {} = the legacy tool's layout of a new diagram)
+    signals_sheet: dict = field(default_factory=dict)
+    params_sheet: dict = field(default_factory=dict)
     header: str = ''
 
     def signal(self, name: str) -> Signal | None:

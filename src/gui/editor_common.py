@@ -3,7 +3,7 @@ bd_editor.BdEditor), with the legacy tool's behaviour:
 
     print_diagram / copy_picture     File > Print... / Print Window..., Diagram > Copy Picture
     align / distribute               Edit > Align, Edit > Align > Distribute
-    FindReplaceDialog                Edit > Find... / Replace... over the texts of a diagram
+    select_span / mark_text          the match Find Next shows (Edit > Find...: find_dialog.py)
     History                          Back / Forward: the diagram windows in the order they were used
     fill_windows_menu                the open windows at the end of the Window menu
     update_edit_states               Cut / Copy / Delete / Paste / Align ... greyed as in the legacy tool
@@ -11,15 +11,10 @@ bd_editor.BdEditor), with the legacy tool's behaviour:
 """
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
-from typing import Callable
-
 from PySide6.QtCore import QEvent, QObject, QRectF, Qt
 from PySide6.QtGui import QAction, QImage, QPainter
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QGraphicsItem, QGraphicsScene,
-                               QGraphicsView, QGridLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMainWindow, QMenu, QMessageBox, QVBoxLayout)
+from PySide6.QtWidgets import (QApplication, QDialog, QGraphicsItem, QGraphicsScene, QGraphicsView, QMainWindow,
+                               QMenu, QMessageBox)
 
 
 # -- printing and pictures ------------------------------------------------------------------------
@@ -158,127 +153,72 @@ def distribute(items: list[QGraphicsItem], horizontal: bool) -> bool:
     return moved
 
 
-# -- find / replace -----------------------------------------------------------------------------------
-@dataclass
-class TextField:
-    """One text of a diagram that Find / Replace looks in: where it is (shown in the result list),
-    how to read and write it, and how to show its object."""
-    where: str
-    get: Callable[[], str]
-    set: Callable[[str], None] | None
-    show: Callable[[], None]
+# -- Find: the match shown -------------------------------------------------------------------
+FIND_HIGHLIGHT = '#0078d7'          # the legacy tool's selection blue, also while the Find dialog has the focus
 
 
-class FindReplaceDialog(QDialog):
-    """Edit > Find... / Replace...: search the texts of the diagram (names, conditions, actions,
-    expressions ...). Find lists the matches; a double-click (or Show) selects the object. Replace
-    changes the matches, one or all, as one undoable edit (`done(changed)` is called after)."""
+def select_span(ed, span: tuple[int, int] | None) -> None:
+    """Select `span` (start, end) of the text in an in-place editor (QLineEdit or QPlainTextEdit),
+    drawn in the selection blue even while the window does not have the focus (the Find dialog
+    has it), as the legacy tool shows the match Find Next found."""
+    if span is None:
+        return
+    from PySide6.QtGui import QPalette
+    pal = ed.palette()
+    for role, colour in ((QPalette.Highlight, FIND_HIGHLIGHT), (QPalette.HighlightedText, '#ffffff')):
+        for group in (QPalette.Active, QPalette.Inactive):
+            pal.setColor(group, role, colour)
+    ed.setPalette(pal)
+    ed.setStyleSheet(ed.styleSheet() + f' selection-background-color: {FIND_HIGHLIGHT}; selection-color: white;')
+    start, end = span
+    if hasattr(ed, 'setSelection'):
+        ed.setSelection(start, end - start)
+    else:
+        cur = ed.textCursor()
+        cur.setPosition(start)
+        cur.setPosition(end, cur.MoveMode.KeepAnchor)
+        ed.setTextCursor(cur)
+        ed.ensureCursorVisible()
 
-    def __init__(self, parent, fields: Callable[[], list[TextField]], done: Callable[[], None],
-                 replace: bool = False, readonly: bool = False):
-        super().__init__(parent)
-        self.setWindowTitle('Replace' if replace else 'Find')
-        self._fields, self._done = fields, done
-        self._matches: list[TextField] = []
-        lay = QVBoxLayout(self)
-        g = QGridLayout()
-        self.find = QLineEdit()
-        self.repl = QLineEdit()
-        g.addWidget(QLabel('Find what:'), 0, 0); g.addWidget(self.find, 0, 1)
-        g.addWidget(QLabel('Replace with:'), 1, 0); g.addWidget(self.repl, 1, 1)
-        lay.addLayout(g)
-        self.case = QCheckBox('Match case')
-        self.word = QCheckBox('Match whole word only')
-        self.regex = QCheckBox('Regular expression')
-        for c in (self.case, self.word, self.regex):
-            lay.addWidget(c)
-        self.results = QListWidget()
-        self.results.itemDoubleClicked.connect(self._show)
-        lay.addWidget(self.results)
-        self.status = QLabel('')
-        lay.addWidget(self.status)
-        box = QDialogButtonBox()
-        b_find = box.addButton('Find All', QDialogButtonBox.ActionRole)
-        b_show = box.addButton('Show', QDialogButtonBox.ActionRole)
-        self.b_one = box.addButton('Replace', QDialogButtonBox.ActionRole)
-        self.b_all = box.addButton('Replace All', QDialogButtonBox.ActionRole)
-        box.addButton(QDialogButtonBox.Close)
-        b_find.clicked.connect(self.find_all)
-        b_show.clicked.connect(lambda: self._show(self.results.currentItem()))
-        self.b_one.clicked.connect(lambda: self.replace(only_current=True))
-        self.b_all.clicked.connect(lambda: self.replace(only_current=False))
-        box.rejected.connect(self.reject)
-        lay.addWidget(box)
-        self.find.returnPressed.connect(self.find_all)
-        for w in (self.repl, self.b_one, self.b_all):
-            w.setVisible(replace)
-            w.setEnabled(not readonly)
-        g.itemAtPosition(1, 0).widget().setVisible(replace)
-        self.resize(520, 420)
 
-    def pattern(self) -> re.Pattern | None:
-        """The search as a regular expression (None when the box is empty or the expression is wrong)."""
-        text = self.find.text()
-        if not text:
-            return None
-        expr = text if self.regex.isChecked() else re.escape(text)
-        if self.word.isChecked():
-            expr = rf'\b{expr}\b'
+_MARKED: list = []
+
+
+def mark_text(item, span: tuple[int, int] | None) -> None:
+    """Show the match on a text that has no in-place editor (a comment text): the matched characters
+    are drawn on the selection blue (item.find_span, read by its paint); the mark shown before goes."""
+    for old in _MARKED:
         try:
-            return re.compile(expr, 0 if self.case.isChecked() else re.IGNORECASE)
-        except re.error as e:
-            self.status.setText(f'Invalid expression: {e}')
-            return None
+            old.find_span = None
+            old.update()
+        except RuntimeError:
+            pass
+    _MARKED.clear()
+    if item is not None and span is not None:
+        item.find_span = span
+        item.update()
+        _MARKED.append(item)
 
-    def find_all(self):
-        """List every text that matches."""
-        self.results.clear()
-        self._matches = []
-        pat = self.pattern()
-        if pat is None:
-            return
-        for f in self._fields():
-            text = f.get() or ''
-            n = len(pat.findall(text))
-            if n:
-                self._matches.append(f)
-                line = text.replace('\n', ' ')
-                it = QListWidgetItem(f'{f.where}: {line[:80]}' + (f'  ({n})' if n > 1 else ''))
-                it.setData(Qt.UserRole, len(self._matches) - 1)
-                self.results.addItem(it)
-        self.status.setText(f'{len(self._matches)} match(es)')
-        if self._matches:
-            self.results.setCurrentRow(0)
 
-    def _show(self, item):
-        if item is not None:
-            self._matches[item.data(Qt.UserRole)].show()
-
-    def replace(self, only_current: bool):
-        """Replace in the current match (Replace) or in all of them (Replace All)."""
-        pat = self.pattern()
-        if pat is None:
-            return
-        if not self._matches:
-            self.find_all()
-        targets = self._matches
-        if only_current:
-            cur = self.results.currentItem()
-            targets = [self._matches[cur.data(Qt.UserRole)]] if cur is not None else []
-        n = 0
-        for f in targets:
-            if f.set is None:
-                continue
-            old = f.get() or ''
-            new, k = pat.subn(self.repl.text() if self.regex.isChecked() else self.repl.text().replace('\\', r'\\'),
-                              old)
-            if k:
-                f.set(new)
-                n += k
-        if n:
-            self._done()
-        self.find_all()
-        self.status.setText(f'{n} replacement(s); ' + self.status.text())
+def paint_text_lines(p, lines: list[str], x: float, top: float, fm, span, colour) -> None:
+    """Draw `lines` from (x, top), one per font line, the characters of `span` (start, end counted
+    over the whole text, lines joined by newlines) on the selection blue in white."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QColor
+    pos = 0
+    for k, line in enumerate(lines):
+        base = top + fm.ascent() + k * fm.height()
+        p.setPen(colour)
+        p.drawText(QPointF(x, base), line)
+        if span is not None:
+            a, b = max(span[0] - pos, 0), min(span[1] - pos, len(line))
+            if a < b:
+                x0 = x + fm.horizontalAdvance(line[:a])
+                w = fm.horizontalAdvance(line[a:b])
+                p.fillRect(QRectF(x0, base - fm.ascent(), w, fm.height()), QColor(FIND_HIGHLIGHT))
+                p.setPen(QColor('white'))
+                p.drawText(QPointF(x0, base), line[a:b])
+        pos += len(line) + 1
 
 
 # -- Back / Forward ----------------------------------------------------------------------------------
@@ -468,6 +408,6 @@ def show_regex_help(parent) -> None:
     QMessageBox.information(parent, 'Regular Expressions', REGEX_HELP)
 
 
-__all__ = ['print_diagram', 'copy_picture', 'align', 'distribute', 'TextField', 'FindReplaceDialog', 'History',
+__all__ = ['print_diagram', 'copy_picture', 'align', 'distribute', 'History',
            'fill_windows_menu', 'update_edit_states', 'install_tooltip_filter', 'movable', 'open_user_guide',
            'show_regex_help', 'not_available']

@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 from . import dm_icons as D
 from .icons import draw_refresh
@@ -40,7 +40,7 @@ _ALIAS = {'select_text': 'select', 'select_shape': 'select', 'junction_case': 'j
           'bus_port': 'bus', 'bus_ripper': 'bus', 'bundle_ripper': 'bundle', 'port_out': 'port_in',
           'port_inout': 'port_in', 'port_buffer': 'port_in', 'port_master': 'port_in', 'port_slave': 'port_in',
           'net_highlight': 'highlight', 'net_clear_highlight': 'clear_highlight', 'comment': 'text',
-          'check_design': 'drc'}
+          'check_design': 'drc', 'table_cut': 'cut', 'table_copy': 'copy', 'table_paste': 'paste'}
 
 
 def _arrow(p: QPainter, x1, y1, x2, y2, color, width=1.4, head=3.5):
@@ -265,6 +265,102 @@ def _draw(p: QPainter, name: str):
         _table(p, QRectF(6.5, 4, 8.5, 10))
     elif name == 'refresh':
         draw_refresh(p, 16)
+    # -- table pages: SM Signals Tools --
+    elif name in ('add_input_port', 'add_output_port'):     # green port arrow (output: on a stub)
+        if name == 'add_output_port':
+            p.setPen(QPen(Qt.black, 1)); p.drawLine(QPointF(1, 8), QPointF(5, 8))
+        p.setBrush(QColor(0, 170, 0)); p.setPen(QPen(DARK_GREEN, 0.8))
+        x = 5 if name == 'add_output_port' else 3
+        p.drawPolygon(QPolygonF([QPointF(x, 3), QPointF(x + 9, 8), QPointF(x, 13)]))
+    elif name == 'add_inout_port':                          # green diamond
+        p.setBrush(QColor(0, 170, 0)); p.setPen(QPen(DARK_GREEN, 0.8))
+        p.drawPolygon(QPolygonF([QPointF(8, 3), QPointF(13, 8), QPointF(8, 13), QPointF(3, 8)]))
+    elif name == 'add_local_signal':                        # a net with a bend
+        p.setPen(QPen(NAVY, 1.4)); p.setBrush(Qt.NoBrush)
+        p.drawPolyline(QPolygonF([QPointF(2, 3), QPointF(8, 3), QPointF(8, 13), QPointF(14, 13)]))
+    elif name in ('table_group', 'table_ungroup', 'table_expand', 'table_collapse'):
+        p.setBrush(QColor(156, 222, 255)); p.setPen(QPen(QColor(60, 60, 60), 0.8))
+        p.drawRect(QRectF(1.5, 2.5, 13, 3.5))
+        p.setBrush(Qt.white)
+        p.drawRect(QRectF(4.5, 7, 10, 3)); p.drawRect(QRectF(4.5, 11, 10, 3))
+        p.setPen(QPen(Qt.black, 1.2))
+        if name == 'table_ungroup':
+            p.setPen(QPen(RED, 1.4)); p.drawLine(QPointF(1, 14), QPointF(15, 1))
+        elif name in ('table_expand', 'table_collapse'):
+            p.drawLine(QPointF(2, 4.2), QPointF(5, 4.2))
+            if name == 'table_expand':
+                p.drawLine(QPointF(3.5, 2.8), QPointF(3.5, 5.6))
+    elif name in ('table_filter', 'table_filter_settings'):  # funnel
+        p.setBrush(QColor(255, 220, 60)); p.setPen(QPen(QColor(110, 80, 0), 0.9))
+        p.drawPolygon(QPolygonF([QPointF(1.5, 2), QPointF(12.5, 2), QPointF(8.5, 7.5), QPointF(8.5, 13),
+                                 QPointF(5.5, 14.5), QPointF(5.5, 7.5)]))
+        if name == 'table_filter_settings':
+            p.setBrush(QColor(0, 160, 0)); p.setPen(QPen(DARK_GREEN, 0.8))
+            for y in (8, 12):
+                p.drawRect(QRectF(11, y - 1.5, 4, 3))
+    elif name == 'autofit':                                 # a wand with a spark
+        p.setPen(QPen(QColor(60, 60, 60), 1.8, Qt.SolidLine, Qt.RoundCap)); p.drawLine(QPointF(2, 14), QPointF(10, 6))
+        p.setPen(QPen(QColor(220, 160, 0), 1.2))
+        for a in range(0, 360, 45):
+            r = math.radians(a)
+            p.drawLine(QPointF(12, 4), QPointF(12 + 3.2 * math.cos(r), 4 + 3.2 * math.sin(r)))
+    elif name in ('sort_asc', 'sort_desc'):                 # A over Z (or Z over A) and an arrow down
+        f = QFont('Arial', 6, QFont.Bold)
+        p.setFont(f); p.setPen(NAVY)
+        top, bottom = ('A', 'Z') if name == 'sort_asc' else ('Z', 'A')
+        p.drawText(QRectF(0, 0, 8, 8), Qt.AlignCenter, top)
+        p.drawText(QRectF(0, 8, 8, 8), Qt.AlignCenter, bottom)
+        _arrow(p, 12, 2, 12, 14, Qt.black, 1.2, 3.5)
+    elif name == 'toggle_tables':                           # a green turning arrow and a P (parameters)
+        p.setPen(QPen(QColor(0, 150, 0), 1.8)); p.setBrush(Qt.NoBrush); p.drawArc(QRectF(1.5, 1.5, 9, 9), 30 * 16, 280 * 16)
+        p.setBrush(QColor(0, 150, 0)); p.setPen(Qt.NoPen)
+        p.drawPolygon(QPolygonF([QPointF(8.5, 0.5), QPointF(11.5, 3.5), QPointF(7.5, 4.5)]))
+        p.setBrush(QColor(255, 220, 0)); p.setPen(QPen(Qt.black, 0.8)); p.drawEllipse(QPointF(11, 11), 4.3, 4.3)
+        p.setPen(Qt.black); p.setFont(QFont('Arial', 6, QFont.Bold)); p.drawText(QRectF(6.7, 6.7, 8.6, 8.6), Qt.AlignCenter, 'P')
+    elif name == 'show_grouped':                            # stacked rows in a grey case
+        p.setBrush(QColor(200, 200, 200)); p.setPen(QPen(QColor(60, 60, 60), 0.9)); p.drawRoundedRect(QRectF(1.5, 4, 13, 8), 2, 2)
+        p.setBrush(Qt.white); p.drawRect(QRectF(4, 1.5, 8, 4)); p.drawRect(QRectF(4, 10, 8, 4.5))
+        p.setPen(QPen(Qt.black, 0.8)); p.drawLine(QPointF(5, 12), QPointF(11, 12))
+    elif name == 'show_diagram':                            # a state diagram page
+        p.setBrush(Qt.white); p.setPen(QPen(QColor(60, 60, 60), 0.8)); p.drawRect(QRectF(1.5, 1.5, 13, 13))
+        p.setBrush(CYAN); p.setPen(QPen(DARK_CYAN, 0.8))
+        p.drawEllipse(QPointF(5, 6), 2.6, 2.6); p.drawEllipse(QPointF(11, 11), 2.6, 2.6)
+        _arrow(p, 6.8, 7.8, 9.2, 9.2, Qt.black, 0.9, 2.5)
+    # -- table pages: Appearance --
+    elif name == 'fill_color':                              # paint bucket over a colour bar
+        p.fillRect(QRectF(1, 12.5, 14, 3), QColor(255, 255, 0))
+        p.setBrush(QColor(230, 230, 230)); p.setPen(QPen(Qt.black, 0.9))
+        p.drawPolygon(QPolygonF([QPointF(3, 6), QPointF(8, 1.5), QPointF(12.5, 6), QPointF(8, 10.5)]))
+        p.setBrush(QColor(0, 120, 215)); p.setPen(Qt.NoPen); p.drawEllipse(QPointF(13.5, 8.5), 1.5, 1.5)
+    elif name == 'font_color':                              # A over a red bar
+        p.fillRect(QRectF(1, 12.5, 14, 3), RED)
+        p.setPen(Qt.black); p.setFont(QFont('Arial', 9, QFont.Bold)); p.drawText(QRectF(0, -1, 16, 13), Qt.AlignCenter, 'A')
+    elif name == 'fill_style':                              # a hatched square
+        p.setBrush(QBrush(QColor(90, 90, 90), Qt.BDiagPattern)); p.setPen(QPen(QColor(90, 90, 90), 1))
+        p.drawRect(QRectF(2.5, 2.5, 11, 11))
+    elif name == 'table_machine':                           # a machine tree: a box and two nodes
+        p.setBrush(QColor(255, 220, 60)); p.setPen(QPen(QColor(110, 80, 0), 0.8)); p.drawRect(QRectF(1.5, 1.5, 6, 5))
+        p.setPen(QPen(Qt.black, 1)); p.drawLine(QPointF(4.5, 6.5), QPointF(4.5, 12)); p.drawLine(QPointF(4.5, 9), QPointF(9, 9))
+        p.drawLine(QPointF(4.5, 12), QPointF(9, 12))
+        p.setBrush(QColor(0, 200, 230)); p.setPen(QPen(DARK_CYAN, 0.8))
+        p.drawEllipse(QPointF(11, 9), 2.2, 2.2); p.setBrush(QColor(0, 170, 0)); p.drawEllipse(QPointF(11, 13), 2.2, 2.2)
+    elif name in ('font_grow', 'font_shrink'):
+        p.setPen(Qt.black)
+        p.setFont(QFont('Arial', 10 if name == 'font_grow' else 7, QFont.Bold))
+        p.drawText(QRectF(0, 1, 12, 15), Qt.AlignCenter, 'A')
+        p.setFont(QFont('Arial', 5, QFont.Bold))
+        p.drawText(QRectF(10, 0, 6, 6), Qt.AlignCenter, '^' if name == 'font_grow' else 'v')
+    elif name in ('bold', 'italic', 'underline'):
+        f = QFont('Times New Roman', 11, QFont.Bold if name == 'bold' else QFont.Normal)
+        f.setItalic(name == 'italic'); f.setUnderline(name == 'underline')
+        p.setFont(f); p.setPen(Qt.black)
+        p.drawText(QRectF(0, 0, 16, 16), Qt.AlignCenter, {'bold': 'B', 'italic': 'I', 'underline': 'U'}[name])
+    elif name in ('cell_align_left', 'cell_align_center', 'cell_align_right'):
+        p.setPen(QPen(QColor(40, 40, 40), 1.2))
+        for k, w in enumerate((12, 8, 12, 8)):
+            y = 3 + k * 3
+            x = {'cell_align_left': 2, 'cell_align_center': 8 - w / 2, 'cell_align_right': 14 - w}[name]
+            p.drawLine(QPointF(x, y), QPointF(x + w, y))
 
 
 def editor_icon(key: str) -> QIcon:

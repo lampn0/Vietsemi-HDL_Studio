@@ -51,8 +51,9 @@ Inside a sub-package, modules import each other relatively (`from .icons import 
 | `gui/bd_editor.py` | Block diagram editor window, canvas, items and routing. |
 | `gui/text_editor.py` | HDL text editor. |
 | `gui/menus.py`, `gui/toolbars.py`, `gui/command_names.py` | Menu bars, toolbars (Standard, ... Tools, HDL Tools, Tasks), legacy command names, tool tips and shortcuts. |
-| `gui/editor_common.py`, `gui/panels.py`, `gui/expression_builder.py` | Commands both diagram editors share: print, Copy Picture, Align / Distribute, Find / Replace, Back / Forward history, Open Up, Document And Visualize; panels; the Expression Builder dialog. |
+| `gui/editor_common.py`, `gui/panels.py`, `gui/find_dialog.py`, `gui/expression_builder.py` | Commands both diagram editors share: print, Copy Picture, Align / Distribute, Back / Forward history, Open Up, Document And Visualize; panels; the legacy Find and Replace dialog (each editor lists its texts as `TextField`s by the legacy object kinds); the Expression Builder dialog. |
 | `gui/editor_icons.py`, `gui/dm_icons.py`, `gui/icons.py` | Icons drawn with QPainter (editor toolbars, Design Manager, shared Refresh). |
+| `gui/tables.py`, `gui/table_page.py`, `formats/sheet.py` | Signals Table and Parameters Table pages: the legacy spreadsheet drawn from the table layout of the view (`signals_sheet` / `params_sheet`, read from the legacy file's Sheet by formats/sheet.py: column widths, frozen columns, row order, cell formats), editing, and the table pages' own menus and toolbars (Table menu, SM Signals Tools, Appearance). |
 | `gui/undo.py` | Snapshot undo / redo; per-view zoom and scroll memory. |
 | other `gui/*` | Dialogs and panels (see each module's docstring). |
 

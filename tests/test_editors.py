@@ -17,7 +17,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 _HOME = tempfile.mkdtemp(prefix='hdlstudio_test_home_')
 os.environ['HDLSTUDIO_HOME'] = _HOME             # never the user's own configuration
 
-from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtCore import QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QDesktopServices  # noqa: E402
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMenu, QMessageBox  # noqa: E402
 
@@ -203,9 +203,9 @@ class TestStateDiagram(_EditorCase):
         m.links.append(Link(m.new_id('l'), target, 0, 0))
         self.w.find_replace(True)
         dlg = self.w._find_dialog
-        dlg.find.setText(target); dlg.word.setChecked(True); dlg.case.setChecked(True)
-        dlg.repl.setText('RENAMED')
-        dlg.replace(only_current=False)
+        dlg.find.setCurrentText(target); dlg.word.setChecked(True); dlg.case.setChecked(True)
+        dlg.repl.setCurrentText('RENAMED')
+        dlg.replace_all()
         dlg.close()
         self.assertIn('RENAMED', [s.name for s in m.states])
         self.assertEqual(m.links[-1].target, 'RENAMED')
@@ -333,11 +333,11 @@ class TestBlockDiagram(_EditorCase):
     def test_find_lists_nets_and_instances(self):
         self.w.find_replace(False)
         dlg = self.w._find_dialog
-        dlg.find.setText('tx'); dlg.find_all()
-        found = [dlg.results.item(k).text() for k in range(dlg.results.count())]
+        dlg.find.setCurrentText('tx'); dlg.find_all()
+        found = [dlg.results.item(k, 1).text() for k in range(dlg.results.rowCount())]
         dlg.close()
-        self.assertTrue(any(t.startswith('Instance u_tx') for t in found))
-        self.assertTrue(any(t.startswith('Net tx_data') for t in found))
+        self.assertIn('Instance u_tx (uart_tx)', found)
+        self.assertIn('Signal tx_data', found)
 
     def test_panel_saved(self):
         self.w.add_panel(QPointF(0, 0))
@@ -352,6 +352,317 @@ class TestBlockDiagram(_EditorCase):
         hist = EC.History.of(self.dm)
         self.assertIn(self.w, hist.windows)
         self.assertIn(child, hist.windows)
+
+
+class TestFindDialog(_EditorCase):
+    """The legacy Find and Replace dialog (find_dialog.py) on uart_tx."""
+
+    def setUp(self):
+        super().setUp()
+        self.w = self.open('uart_tx', 'fsm')
+        self.w.find_replace(False)
+        self.d = self.w._find_dialog
+
+    def visible_buttons(self):
+        d = self.d
+        return [b.text() for b in (d.b_next, d.b_replace, d.b_close, d.b_more, d.b_all, d.b_select,
+                                   d.b_repl_all, d.b_help) if b.isVisible()]
+
+    def test_layout_as_the_legacy_dialog(self):
+        d = self.d
+        self.assertEqual(d.windowTitle(), 'Find and Replace - uart_lib/uart_tx/fsm [csm]')
+        self.assertEqual([d.tabs.tabText(k) for k in range(d.tabs.count())], ['Find', 'Replace'])
+        self.assertEqual(self.visible_buttons(), ['Find Next', 'Close', 'More >>'])
+        d.set_more(True)
+        self.assertEqual(self.visible_buttons(), ['Find Next', 'Close', '<< Less', 'Find All', 'Select All', 'Help'])
+        self.assertEqual([d.depth.itemText(k) for k in range(d.depth.count())],
+                         ['Current', 'Hierarchically', 'Through Components'])
+        self.assertTrue(d.related.isVisible())
+        d.tabs.setCurrentIndex(1)
+        self.assertEqual(self.visible_buttons(),
+                         ['Find Next', 'Replace', 'Close', '<< Less', 'Find All', 'Replace All', 'Help'])
+        self.assertFalse(d.related.isVisible())
+        self.assertTrue(d.repl.isVisible())
+        self.assertFalse(d.clear_btn.isEnabled())
+        d.kinds.item(0).setSelected(True)
+        self.assertTrue(d.clear_btn.isEnabled())
+        d.clear_btn.click()
+        self.assertEqual(d.kinds.selectedItems(), [])
+        self.assertFalse(d.syntax_btn.isEnabled())
+        d.regex.setChecked(True)
+        self.assertTrue(d.syntax_btn.isEnabled())
+
+    def test_find_next_opens_the_text_with_the_match_selected(self):
+        from PySide6.QtWidgets import QPlainTextEdit
+        d = self.d
+        d.find.setCurrentText('bit_cnt')
+        self.assertTrue(d.find_next())
+        boxes = [e for e in self.w.canvas.viewport().findChildren(QPlainTextEdit) if e.isVisible()]
+        self.assertEqual([b.textCursor().selectedText() for b in boxes], ['bit_cnt'])
+        self.assertIn('bit_cnt', [d.find.itemText(k) for k in range(d.find.count())])     # history
+
+    def test_find_next_stops_at_the_end_unless_wrap(self):
+        d = self.d
+        d.find.setCurrentText('bit_cnt')
+        n = len(d.matches()[1])
+        for _ in range(n):
+            self.assertTrue(d.find_next())
+        self.assertFalse(d.find_next())
+        d.wrap.setChecked(True)
+        self.assertTrue(d.find_next())
+
+    def test_find_all_and_constraints(self):
+        d = self.d
+        d.find.setCurrentText('bit_cnt')
+        d.find_all()
+        names = [d.results.item(r, 1).text() for r in range(d.results.rowCount())]
+        self.assertIn('Signals Name Column (bit_cnt)', names)
+        self.assertEqual(d.results.item(0, 2).text(), 'Available for Edit')
+        d.kinds.findItems('Transition conditions', Qt.MatchExactly)[0].setSelected(True)
+        d.find_all()
+        names = [d.results.item(r, 1).text() for r in range(d.results.rowCount())]
+        self.assertTrue(names and all(n.startswith('Condition of Transition') for n in names))
+
+    def test_replace_one_then_all(self):
+        d = self.d
+        d.tabs.setCurrentIndex(1)
+        d.find.setCurrentText('bit_cnt')
+        d.case.setChecked(True); d.word.setChecked(True)
+        d.repl.setCurrentText('bitcount')
+        total = len(d.matches()[1])
+        d.find_next()
+        d.replace_one()
+        self.assertEqual(len(d.matches()[1]), total - 1)
+        self.assertEqual(d.replace_all(), total - 1)
+        self.assertEqual(d.matches()[1], [])
+        self.assertIn('bitcount', [s.name for s in self.w.view.signals])
+
+    def test_regular_expression_groups(self):
+        d = self.d
+        d.find.setCurrentText(r'(\w+)_cnt'); d.regex.setChecked(True); d.case.setChecked(True)
+        d.repl.setCurrentText(r'\1_count')
+        self.assertGreater(d.replace_all(), 0)
+        self.assertIn('bit_count', [s.name for s in self.w.view.signals])
+
+    def test_block_diagram_kinds(self):
+        from gui.find_dialog import BD_KINDS
+        b = self.open('uart_top', 'bd')
+        b.find_replace(True)
+        d = b._find_dialog
+        self.assertEqual(d.windowTitle(), 'Find and Replace - uart_lib/uart_top/struct')
+        self.assertEqual([d.kinds.item(k).text() for k in range(d.kinds.count())], BD_KINDS)
+        self.assertEqual(d.tabs.currentIndex(), 1)
+        d.find.setCurrentText('tx_data'); d.case.setChecked(True); d.word.setChecked(True)
+        d.repl.setCurrentText('tx_byte')
+        d.kinds.findItems('Signal Name', Qt.MatchExactly)[0].setSelected(True)
+        self.assertEqual(d.replace_all(), 1)                    # the net, renamed everywhere
+        self.assertTrue(all(w.net != 'tx_data' for w in b.bd.wires))
+        self.assertIn('tx_byte', {p.net for i in b.bd.instances for p in i.pins})
+
+
+class TestFindHighlight(_EditorCase):
+    """Find Next shows the match selected (blue) in place, comment texts marked; End of search."""
+
+    def setUp(self):
+        super().setUp()
+        self.messages = []
+        QMessageBox.information = staticmethod(lambda p, t, m, *a, **k: self.messages.append(m) or QMessageBox.Ok)
+
+    def boxes(self, w):
+        from PySide6.QtWidgets import QLineEdit, QPlainTextEdit
+        vp = w.canvas.viewport()
+        return [e for e in vp.findChildren(QLineEdit) + vp.findChildren(QPlainTextEdit) if e.isVisible()]
+
+    def test_state_name_opens_with_the_match_selected_in_blue(self):
+        from PySide6.QtGui import QPalette
+        w = self.open('uart_tx', 'fsm')
+        w.find_replace(False)
+        d = w._find_dialog
+        d.find.setCurrentText('DAT'); d.case.setChecked(True)
+        self.assertTrue(d.find_next())
+        boxes = self.boxes(w)
+        self.assertEqual([b.selectedText() for b in boxes], ['DAT'])
+        pal = boxes[0].palette()
+        self.assertEqual(pal.color(QPalette.Inactive, QPalette.Highlight).name(), '#0078d7')
+
+    def test_comment_text_is_marked(self):
+        _answers('look at DATA')
+        w = self.open('uart_tx', 'fsm')
+        w.add_comment(QPointF(0, -200))
+        w.find_replace(False)
+        d = w._find_dialog
+        d.find.setCurrentText('look'); d.case.setChecked(True)
+        d.find_next()
+        marked = [i for i in w.scene.items() if isinstance(i, CommentTextItem)]
+        self.assertEqual(marked[0].find_span, (0, 4))
+
+    def test_end_of_search_message(self):
+        w = self.open('uart_tx', 'fsm')
+        w.find_replace(False)
+        d = w._find_dialog
+        d.find.setCurrentText('bit_cnt')
+        n = len(d.matches()[1])
+        for _ in range(n):
+            d.find_next()
+        self.assertEqual(self.messages, [])
+        self.assertFalse(d.find_next())
+        self.assertEqual(self.messages, ["End of search. Hit 'Find Next' to start again."])
+        self.assertTrue(d.find_next())                         # starts again from the first match
+        d.find.setCurrentText('no_such_text')
+        d.find_next()
+        self.assertEqual(self.messages[-1], 'Search completed. Nothing was found.')
+
+    def test_block_diagram_instance_opens_in_place(self):
+        b = self.open('uart_top', 'bd')
+        b.find_replace(False)
+        d = b._find_dialog
+        d.find.setCurrentText('u_r'); d.case.setChecked(True)
+        d.find_next()
+        APP.processEvents()
+        self.assertEqual([x.selectedText() for x in self.boxes(b)], ['u_r'])
+
+
+class TestTables(_EditorCase):
+    """Signals Table and Parameters Table pages as the legacy spreadsheet."""
+
+    def setUp(self):
+        super().setUp()
+        self.w = self.open('uart_rx', 'fsm')
+        self.st = self.w.signals_tab
+        self.t = self.st.table
+
+    def sig(self, name):
+        return next(s for s in self.w.view.signals if s.name == name)
+
+    def cell(self, name, attr):
+        return self.t.item(self.st.row_of(self.sig(name)), self.st.column_of(attr))
+
+    def test_columns_of_a_new_diagram(self):
+        from gui.tables import HEADERS
+        self.assertEqual([HEADERS[a] for a in self.st.columns],
+                         ['Group', 'Name', 'Mode', 'Type', 'Signed', 'Bounds', 'Delay', 'Value', 'Category',
+                          'Assign In', 'Expression', 'Scheme', 'Default', 'Reset', 'Comment'])
+        self.assertEqual(self.w.params_tab.columns, ['group', 'name', 'value', 'comment'])
+        self.assertEqual([self.t.columnWidth(k) for k in range(4)], [50, 70, 50, 80])   # the legacy defaults
+        self.assertEqual(self.t.fixed(), 3)                     # Group, Name, Mode frozen
+        b = self.open('uart_top', 'bd')
+        self.assertEqual(b.signals_tab.columns,
+                         ['group', 'name', 'mode', 'type', 'signed', 'bounds', 'delay', 'value', 'comment'])
+        self.assertEqual(b.params_tab.columns, ['group', 'name', 'value', 'comment'])
+        self.assertEqual(self.t.rowCount(), len(self.w.view.signals) + 1)       # the empty last row
+
+    def test_texts_and_grey_cells(self):
+        self.assertEqual(self.cell('clk', 'category').text(), 'Clock (Rising)')
+        self.assertEqual(self.cell('rst', 'category').text(), 'Reset (Async Low)')
+        self.assertEqual(self.cell('rx_data', 'assign').text(), '<auto>')
+        self.assertEqual(self.cell('shift_reg', 'scheme').text(), 'Clocked')
+
+        def editable(it):
+            return bool(it.flags() & Qt.ItemIsEditable)
+        self.assertFalse(editable(self.cell('clk', 'scheme')))              # inputs have no scheme
+        self.assertFalse(editable(self.cell('clk', 'assign')))              # nor Assign In
+        self.assertTrue(editable(self.cell('rx_data', 'assign')))           # outputs have <auto> / <none>
+        self.assertTrue(editable(self.cell('clk', 'expression')))           # a clock has its expression
+        self.assertFalse(editable(self.cell('rx', 'expression')))           # a data input has none
+        self.assertFalse(editable(self.cell('rx_data', 'category')))        # outputs have no category
+        self.assertFalse(editable(self.cell('rx_data', 'reset')))           # combinational: no reset
+        self.assertTrue(editable(self.cell('shift_reg', 'reset')))          # clocked: a reset value
+
+    def test_assign_none(self):
+        s = self.sig('rx_data')
+        self.t.write(self.st.row_of(s), self.st.column_of('assign'), '<none>')
+        self.assertEqual(s.scheme, 'none')
+        self.assertEqual(self.cell('rx_data', 'scheme').text(), 'N/A')
+        self.assertFalse(bool(self.cell('rx_data', 'default').flags() & Qt.ItemIsEditable))
+
+    def test_typing_in_the_last_row_adds_a_signal(self):
+        n = len(self.w.view.signals)
+        self.t.write(n, self.st.column_of('name'), 'new_in')
+        self.assertEqual(self.w.view.signals[-1].name, 'new_in')
+        self.assertEqual((self.w.view.signals[-1].mode, self.w.view.signals[-1].type), ('input', 'wire'))
+        self.assertEqual(self.t.rowCount(), n + 2)
+        self.assertEqual(self.w.view.signals_sheet['order'][-1], 'new_in')     # its place in the layout
+        self.t.write(self.st.row_of(self.sig('clk')), self.st.column_of('name'), 'rst')   # a name taken
+        self.assertIsNotNone(self.sig('clk'))
+
+    def test_category_sets_the_expression(self):
+        n = len(self.w.view.signals)
+        self.t.write(n, self.st.column_of('name'), 'en')
+        s = self.sig('en')
+        self.t.write(self.st.row_of(s), self.st.column_of('category'), 'Enable (Low)')
+        self.assertEqual((s.category, s.expression), ('enable', '!en'))
+        self.t.write(self.st.row_of(s), self.st.column_of('name'), 'en2')       # the expression follows the name
+        self.assertEqual(s.expression, '!en2')
+        self.t.write(self.st.row_of(s), self.st.column_of('mode'), 'output')
+        self.assertEqual((s.category, s.scheme), ('data', 'comb'))
+
+    def test_delete_rows_sort_and_filter(self):
+        from PySide6.QtTest import QTest
+        n = len(self.w.view.signals)
+        self.t.setFocus()
+        self.t.selectRow(0)
+        QTest.keyClick(self.t, Qt.Key_Delete)
+        self.assertEqual(len(self.w.view.signals), n - 1)
+        self.t.setCurrentCell(0, self.st.column_of('name'))
+        self.st.sort()
+        names = [s.name for s in self.st.display_rows()]
+        self.assertEqual(names, sorted(names, key=str.lower))
+        self.t.set_filter(self.st.column_of('mode'), 'local')
+        rows = self.st.display_rows()
+        shown = {rows[r].mode for r in range(len(rows)) if not self.t.isRowHidden(r)}
+        self.assertEqual(shown, {'local'})
+        self.st.clear_filters()
+        self.assertFalse(any(self.t.isRowHidden(r) for r in range(self.t.rowCount())))
+
+    def test_appearance_and_column_width_are_kept_in_the_layout(self):
+        self.t.setCurrentCell(self.st.row_of(self.sig('clk')), self.st.column_of('name'))
+        self.st.set_format(bg='#ff0000', bold=None, align='left')
+        fmt = self.w.view.signals_sheet['cells']['clk|name']
+        self.assertEqual((fmt['bg'], fmt['bold'], fmt['align']), ('#ff0000', True, 'left'))
+        self.t.setColumnWidth(self.st.column_of('comment'), 222)
+        self.assertIn(['comment', 222], self.w.view.signals_sheet['columns'])
+
+    def test_page_menus_and_toolbars(self):
+        from PySide6.QtWidgets import QToolBar
+        w = self.w
+        w.tabs.setCurrentWidget(self.st)
+        titles = [a.text().replace('&', '') for a in w.menuBar().actions()]
+        self.assertEqual(titles, ['File', 'Edit', 'View', 'HDL', 'Table', 'Tasks', 'Add', 'Options', 'Window', 'Help'])
+        shown = {t.windowTitle() for t in w.findChildren(QToolBar) if not t.isHidden()}
+        self.assertTrue({'Standard', 'SM Signals Tools', 'Appearance', 'HDL Tools', 'Tasks'} <= shown)
+        self.assertNotIn('State Diagram Tools', shown)
+        w.toolbar_actions['toggle_tables'].trigger()
+        self.assertIs(w.tabs.currentWidget(), w.params_tab)
+        w.toolbar_actions['show_diagram'].trigger()
+        titles = [a.text().replace('&', '') for a in w.menuBar().actions()]
+        self.assertIn('Diagram', titles)
+        shown = {t.windowTitle() for t in w.findChildren(QToolBar) if not t.isHidden()}
+        self.assertIn('State Diagram Tools', shown)
+        self.assertNotIn('Appearance', shown)
+
+    def test_parameters(self):
+        p = self.w.params_tab
+        p.table.write(len(self.w.view.parameters), p.column_of('name'), 'WIDTH')
+        prm = self.w.view.parameters[-1]
+        p.table.write(p.row_of(prm), p.column_of('value'), '8')
+        self.assertEqual((prm.name, prm.value), ('WIDTH', '8'))
+
+
+@unittest.skipUnless(os.path.isfile(os.path.join(os.environ.get('HDLSTUDIO_SAMPLES', 'D:/workspace'), 'fsm.sm')),
+                     'no legacy state diagram sample (HDLSTUDIO_SAMPLES)')
+class TestSheetLayout(unittest.TestCase):
+    """The table layout read from a legacy .sm (formats.sheet)."""
+
+    def test_read_sheets(self):
+        from formats.sexpr import parse_file
+        from formats.sheet import read_sheets
+        sig, prm = read_sheets(parse_file(os.path.join(os.environ.get('HDLSTUDIO_SAMPLES', 'D:/workspace'),
+                                                       'fsm.sm')))
+        self.assertEqual(sig['columns'][0][0], '#ref')
+        self.assertIn('name', [a for a, _ in sig['columns']])
+        self.assertEqual(sig['fixed_row'], 2)
+        self.assertEqual(sig['va']['header']['bg'], '#c0c0c0')
+        self.assertEqual(prm['columns'][-1][0], 'comment')
 
 
 class TestEditorCommon(unittest.TestCase):

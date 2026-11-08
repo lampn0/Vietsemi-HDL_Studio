@@ -78,6 +78,38 @@ BD_TOOLBARS = [
     ('Tasks', _tasks(True)),
 ]
 
+
+# The Signals Table / Parameters Table pages (read from the legacy tool): a shorter Standard toolbar,
+# the table tools and, at the bottom, the Appearance toolbar; HDL Tools and Tasks stay
+TABLE_STANDARD = [[('new', 'New')], ('back', 'Back'), ('forward', 'Forward'), ('open_up', 'Open Up'), ('save', 'Save'),
+                  ('print', 'Print'),
+                  [('document', 'Document & Visualize Design'), ('document_hier', 'Hierarchy Through Components'),
+                   ('document_root', 'Through Design Root')], '|',
+                  ('table_cut', 'Cut'), ('table_copy', 'Copy'), ('table_paste', 'Paste'), '|', ('undo', 'Undo'),
+                  ('redo', 'Redo'), '|', ('find', 'Find')]
+
+
+def table_tools(machines: bool) -> list:
+    """The table tools toolbar, in the legacy order; `machines`: the View Table for Machine button
+    (state diagrams)."""
+    return ([('add_input_port', 'Add Input Port'), ('add_output_port', 'Add Output Port'),
+             ('add_inout_port', 'Add Inout Port'), ('add_local_signal', 'Add Local Signal'),
+             ('table_group', 'Group'), ('table_ungroup', 'UnGroup'), ('table_expand', 'Expand All Groups'),
+             ('table_collapse', 'Collapse All Groups'), ('table_filter', 'Toggle Filter')]
+            + ([[('table_machine', 'View Table for Machine')]] if machines else [])
+            + [('autofit', 'Autofit'), ('sort_asc', 'Sort in ascending order'),
+               ('sort_desc', 'Sort in descending order'), ('show_grouped', 'Toggle Show Grouped'),
+               ('toggle_tables', 'Switches between Signals/Parameters Tables')])
+
+
+APPEARANCE = [[('fill_color', 'Foreground Color')], [('font_color', 'Font Color')], [('fill_style', 'Fill Style')],
+              '|', ('font_grow', 'Increase Font Size'), ('font_shrink', 'Decrease Font Size'), ('bold', 'Bold'),
+              ('italic', 'Italic'), ('underline', 'Underline'), '|', ('cell_align_left', 'Align Left'),
+              ('cell_align_center', 'Align Center'), ('cell_align_right', 'Align Right')]
+
+FSM_TABLE_TOOLBARS = [('Standard', TABLE_STANDARD), ('SM Signals Tools', table_tools(True))]
+BD_TABLE_TOOLBARS = [('Standard', TABLE_STANDARD), ('Signals Tools', table_tools(False))]
+
 # Shortcuts and mnemonic keys of the legacy editors (Graphical Editors User Manual,
 # "Diagram View Editing", "State Diagram" and "Block Diagram" command tables).
 COMMON_KEYS = {
@@ -147,18 +179,21 @@ def _action(win: QMainWindow, actions: dict[str, QAction], key: str, text: str) 
 
 
 def build_toolbars(win: QMainWindow, actions: dict[str, QAction], spec: list,
-                   keys: dict[str, list[str]] | None = None) -> list[QToolBar]:
+                   keys: dict[str, list[str]] | None = None, page: str = '',
+                   area=None) -> list[QToolBar]:
     """Build the toolbars of an editor window from `spec` (FSM_TOOLBARS / BD_TOOLBARS): '|' is a
     separator, a (key, text) tuple a button, a list a button with a drop-down menu (a one-entry
     list: a button with a drop-down arrow, as New). Then give every action its legacy name, tool tip
-    and shortcuts (apply_names). Returns the toolbars, in order.
+    and shortcuts (apply_names). Returns the toolbars, in order. `page` marks toolbars that belong to
+    one page of the window ('diagram' or 'table': shown only there); `area` is where they go (top).
     """
     bars = []
     for title, entries in spec:
         tb = QToolBar(title, win)
-        tb.setObjectName('tb_' + title.lower().replace(' ', '_'))
+        tb.setObjectName('tb_' + title.lower().replace(' ', '_') + ('_' + page if page else ''))
+        tb.setProperty('page', page)
         tb.setIconSize(QSize(16, 16))
-        win.addToolBar(tb)
+        win.addToolBar(area, tb) if area is not None else win.addToolBar(tb)
         bars.append(tb)
         for entry in entries:
             if entry == '|':
@@ -192,8 +227,10 @@ def fill_toolbars_menu(win: QMainWindow, menu: QMenu) -> None:
     tips.setCheckable(True)
     tips.setChecked(getattr(win, 'toolbar_tooltips', True))
     tips.toggled.connect(lambda on: setattr(win, 'toolbar_tooltips', on))
-    entries: dict[str, QAction | None] = {tb.windowTitle(): tb.toggleViewAction() for tb in win.findChildren(QToolBar)}
-    for name in ('Appearance', 'Arrange Object', 'Comment Graphics', 'Format Text'):
+    page = getattr(win, 'current_page', 'diagram')
+    entries: dict[str, QAction | None] = {tb.windowTitle(): tb.toggleViewAction() for tb in win.findChildren(QToolBar)
+                                          if tb.property('page') in (None, '', page)}
+    for name in (('Appearance', 'Arrange Object', 'Comment Graphics', 'Format Text') if page == 'diagram' else ()):
         entries.setdefault(name, None)
     for name in sorted(entries):
         a = entries[name]

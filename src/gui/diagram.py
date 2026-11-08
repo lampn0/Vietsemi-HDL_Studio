@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsPat
                                QRubberBand)
 
 from formats.import_sm import SCALE
-from model import Junction, Link, Machine, Point, State, Transition
+from model import Junction, Link, Machine, Point, State, Transition, category_label
 
 # The legacy editors' grid: 1000 database units. Everything placed or moved lands on it.
 GRID = 1000 * SCALE
@@ -67,6 +67,7 @@ SEL_PEN = QPen(QColor(255, 120, 0), 2.5)
 TEXT_FONT = QFont('Arial', 8)
 NAME_FONT = QFont('Arial', 8, QFont.Bold)
 GRAB = 6.0          # pick distance for bend points, in scene units
+MID_R = 4.0         # half size of the diamond in the middle of a selected transition's pieces of line
 
 
 def _fm() -> QFontMetricsF:
@@ -142,6 +143,37 @@ def _spline(path: QPainterPath, pts: list[QPointF]) -> None:
         c1 = p1 + (p2 - p0) / 6
         c2 = p2 - (p3 - p1) / 6
         path.cubicTo(c1, c2, p2)
+
+
+def _spline_mid(pts: list[QPointF], i: int) -> QPointF:
+    """The middle of piece `i` (pts[i] to pts[i + 1]) of the curve _spline draws through `pts`."""
+    p1, p2 = pts[i], pts[i + 1]
+    if len(pts) < 3:
+        return (p1 + p2) / 2
+    p0 = pts[i - 1] if i > 0 else p1
+    p3 = pts[i + 2] if i + 2 < len(pts) else p2
+    c1, c2 = p1 + (p2 - p0) / 6, p2 - (p3 - p1) / 6
+    return (p1 + c1 * 3 + c2 * 3 + p2) / 8          # the cubic at t = 1/2
+
+
+def _arc3(p: QPainter, a: QPointF, b: QPointF, c: QPointF, through_left: bool = True) -> None:
+    """Draw the arc of the circle through a, b and c, from a to c the way that passes b (the legacy
+    Arc2D, saved as three points)."""
+    ax, ay, bx, by, cx, cy = a.x(), a.y(), b.x(), b.y(), c.x(), c.y()
+    d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-9:
+        p.drawLine(a, c)
+        return
+    ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d
+    uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d
+    r = math.hypot(ax - ux, ay - uy)
+    # Qt angles: degrees, counter-clockwise, y up
+    ang = lambda q: math.degrees(math.atan2(-(q.y() - uy), q.x() - ux)) % 360
+    sa, sb, sc = ang(a), ang(b), ang(c)
+    span = (sc - sa) % 360                              # counter-clockwise from a to c
+    if (sb - sa) % 360 > span:                          # b is not on that way: go clockwise
+        span -= 360
+    p.drawArc(QRectF(ux - r, uy - r, 2 * r, 2 * r), int(sa * 16), int(span * 16))
 
 
 def _lines(text: str) -> list[str]:
@@ -465,23 +497,9 @@ class PointItem(NodeItem):
             p.drawPolygon(QPolygonF([QPointF(x0 + 3, -1), QPointF(x0 + 11, -4), QPointF(x0 + 10, -1),
                                      QPointF(x0 + 22, -2), QPointF(x0 + 13, 3), QPointF(x0 + 14, 0)]))
         else:
-            # the small clock wave (clock / reset / enable) and the mark of each kind
-            pen = QPen(Qt.black, 0)
-            p.setPen(pen)
-            y_lo, y_hi = h * 0.3, -h * 0.3
-            xa = x0 + w * 0.4
-            p.drawPolyline(QPolygonF([QPointF(xa, y_lo), QPointF(xa + 4, y_lo), QPointF(xa + 4, y_hi),
-                                      QPointF(xa + 8, y_hi)]))
-            if kind == 'clock':
-                p.drawArc(QRectF(x0 + 2.5, -2.7, 4.4, 5.4), 90 * 16, 180 * 16)
-            elif kind == 'reset':
-                p.drawLine(QPointF(x0 + 3.3, -2.3), QPointF(x0 + 3.3, 2.3))
-                p.drawLine(QPointF(x0 + 3.3, -2.3), QPointF(x0 + 4.6, -2.3))
-                p.setBrush(Qt.NoBrush)
-                p.drawEllipse(QPointF(xa + 2, 0), 2, 2)
-            elif kind == 'enable':
-                p.drawArc(QRectF(x0 + 2.6, -2.3, 4.7, 4.8), 90 * 16, 180 * 16)
-                p.drawLine(QPointF(x0 + 2.8, -1.4), QPointF(x0 + 6.9, -1.4))
+            # the legacy icon (positions in legacy units from the arrow's centre, as the legacy tool saves
+            # them): the letter of the kind and the edge it acts on
+            self._paint_icon(p, kind)
         cap = self.fsm_scene.point_name(kind)
         if cap:
             # the signal name, right-justified 850 units left of the arrow (as in the legacy tool)
@@ -503,6 +521,49 @@ class PointItem(NodeItem):
                                    r.top() + 800 / 75], expr, LABEL_FONT)
         if self.isSelected():
             _handles(p, QRectF(x0, -h / 2, w, h))
+
+    def icon_state(self) -> tuple[str | None, bool]:
+        """What the icon shows besides its letter: the edge ('rising' / 'falling', None when hidden)
+        and the ring of a synchronous reset. As the legacy tool draws it: a clock shows its active edge
+        (posedge: rising, negedge: falling); an asynchronous reset or an enable shows its active
+        level as an edge (active low: falling, active high: rising); a synchronous reset shows a
+        ring instead of the edge."""
+        kind = self.obj.kind
+        sig = next((s for s in self.fsm_scene.view_model.signals if s.category == kind), None)             if self.fsm_scene.view_model is not None else None
+        if sig is None:                                 # no signal yet: the legacy tool's new point
+            return ('falling' if kind == 'reset' else 'rising'), False
+        label = category_label(sig)
+        if 'Specify' in label or 'Gated' in label:      # an expression written by hand: no edge
+            edge = None
+        else:
+            edge = 'falling' if label.endswith(('(Falling)', 'Low)')) else 'rising'
+        return edge, kind == 'reset' and sig.sync
+
+    def _paint_icon(self, p: QPainter, kind: str):
+        """The letter (clock C, reset r, enable e), the edge and the ring of a synchronous reset."""
+        u = 1 / 75                                      # one legacy unit
+        pen = QPen(Qt.black, 0)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        edge, ring = self.icon_state()
+        if edge:
+            # the edge: 300 units low / high, the step 74 units right of the centre
+            y0, y1 = (300 * u, -300 * u) if edge == 'rising' else (-300 * u, 300 * u)
+            xs = (-225 * u, 74 * u, 374 * u)
+            p.drawPolyline(QPolygonF([QPointF(xs[0], y0), QPointF(xs[1], y0), QPointF(xs[1], y1),
+                                      QPointF(xs[2], y1)]))
+        if ring:
+            p.drawEllipse(QPointF(74 * u, 0), 150 * u, 150 * u)
+        if kind == 'clock':                             # "C": an arc open to the right
+            _arc3(p, QPointF(-616 * u, 153 * u), QPointF(-871 * u, -153 * u), QPointF(-616 * u, -153 * u),
+                  through_left=True)
+        elif kind == 'reset':                           # "r": a stem and a short arm
+            p.drawLine(QPointF(-876 * u, 175 * u), QPointF(-876 * u, -175 * u))
+            p.drawLine(QPointF(-876 * u, -125 * u), QPointF(-776 * u, -175 * u))
+        elif kind == 'enable':                          # "e": a bar and an arc round it
+            p.drawLine(QPointF(-915 * u, -61 * u), QPointF(-606 * u, -61 * u))
+            _arc3(p, QPointF(-630 * u, 138 * u), QPointF(-915 * u, -61 * u), QPointF(-576 * u, -61 * u),
+                  through_left=True)
 
     def _name_geo(self, cap: str) -> list:
         """The signal name's place: as saved by the legacy tool, else right-justified 850 units left of
@@ -563,12 +624,13 @@ class CommentTextItem(QGraphicsItem):
         lines = (self.obj.text or ' ').splitlines() or [' ']
         return QRectF(-2, -2, max(fm.horizontalAdvance(t) for t in lines) + 4, fm.height() * len(lines) + 4)
 
+    find_span = None                # (start, end) of the match Find Next shows (editor_common.mark_text)
+
     def paint(self, p: QPainter, opt, widget=None):
+        from .editor_common import paint_text_lines
         p.setFont(TEXT_FONT)
-        p.setPen(COMMENT_COLOR)
         fm = QFontMetricsF(TEXT_FONT)
-        for k, line in enumerate(self.obj.text.splitlines()):
-            p.drawText(QPointF(0, fm.ascent() + k * fm.height()), line)
+        paint_text_lines(p, self.obj.text.splitlines(), 0, 0, fm, self.find_span, COMMENT_COLOR)
         if self.isSelected():
             p.setPen(QPen(Qt.black, 0, Qt.DashLine))
             p.setBrush(Qt.NoBrush)
@@ -1110,6 +1172,9 @@ class TransitionItem(QGraphicsPathItem):
         self.setZValue(1)
         self.arrow = QPolygonF()
         self.ends = (QPointF(), QPointF())
+        # the middle of each piece of the line between two handles: (index in obj.points where a
+        # route point dragged from there goes, the point); shown as blue diamonds when selected
+        self.mids: list[tuple[int, QPointF]] = []
         self.prio_pos = QPointF()
         self.show_prio = False
         self.label = TransitionLabel(scene, self)
@@ -1170,6 +1235,7 @@ class TransitionItem(QGraphicsPathItem):
             path.moveTo(start)
             path.cubicTo(pa + QPointF(-r * 1.6, -r * 3), pa + QPointF(r * 1.6, -r * 3), end)
             before, mid = pa + QPointF(r * 1.6, -r * 3), pa + QPointF(0, -r * 2.4)
+            mids = []                       # a loop on its state: no route point can be pulled out
         else:
             start, end = self._endpoints(a, b)
             path.moveTo(start)
@@ -1179,6 +1245,7 @@ class TransitionItem(QGraphicsPathItem):
                 ctrl = (start + end) / 2 + off
                 path.quadTo(ctrl, end)
                 before, mid = ctrl, (start + end) / 2 + off / 2
+                mids = [(0, mid)]
             else:
                 # The legacy tool draws a transition as a spline: a smooth curve through its route points
                 _spline(path, [start] + pts + [end])
@@ -1186,11 +1253,18 @@ class TransitionItem(QGraphicsPathItem):
                 seg = [start] + pts + [end]
                 k = len(seg) // 2
                 mid = (seg[k - 1] + seg[k]) / 2
+                mids = [(i, _spline_mid(seg, i)) for i in range(len(seg) - 1)]
         self.setPath(path)
         self.ends = (start, end)
+        self.mids = mids
         ang = math.atan2(end.y() - before.y(), end.x() - before.x())
-        self.arrow = QPolygonF([end, end - QPointF(math.cos(ang - 0.4) * 8, math.sin(ang - 0.4) * 8),
-                                end - QPointF(math.cos(ang + 0.4) * 8, math.sin(ang + 0.4) * 8)])
+        if isinstance(b, LinkItem):
+            # The legacy tool: a transition into a link has no arrow head; the line runs into the
+            # link's stub
+            self.arrow = QPolygonF()
+        else:
+            self.arrow = QPolygonF([end, end - QPointF(math.cos(ang - 0.4) * 8, math.sin(ang - 0.4) * 8),
+                                    end - QPointF(math.cos(ang + 0.4) * 8, math.sin(ang + 0.4) * 8)])
         # priority circle: shown as the legacy file says (else when the source has several
         # transitions), where it was (the legacy tool keeps it at a percentage of the line), else a little
         # way along the first segment
@@ -1254,12 +1328,16 @@ class TransitionItem(QGraphicsPathItem):
 
     def paint(self, p: QPainter, opt, widget=None):
         """Draw the line, the arrow head, the priority circle and, when selected, the handles."""
+        # The legacy tool: a thin line, one pixel at any zoom (a selected transition keeps its colour,
+        # it gets handles); smoothed so curves do not look jagged
+        pen = QPen(Qt.black, 1)
+        pen.setCosmetic(True)
         p.setRenderHint(QPainter.Antialiasing)
-        pen = QPen(Qt.black, 1.1)        # The legacy tool: a selected transition keeps its colour, it gets handles
         p.setPen(pen)
         p.setBrush(Qt.NoBrush)
         p.drawPath(self.path())
-        p.setBrush(pen.color())
+        p.setPen(QPen(Qt.black, 0))
+        p.setBrush(Qt.black)
         p.drawPolygon(self.arrow)
         if self.show_prio:
             # The legacy tool: a white circle (radius 651, or as saved) with the priority in it
@@ -1271,11 +1349,19 @@ class TransitionItem(QGraphicsPathItem):
             p.drawText(QRectF(self.prio_pos.x() - pr, self.prio_pos.y() - pr, 2 * pr, 2 * pr), Qt.AlignCenter,
                        str(self.obj.priority))
         if self.isSelected():
-            # black square handles on the two ends and on each route point
+            # black square handles on the two ends and on each route point, and (the legacy tool) a
+            # hollow blue diamond in the middle of each piece of line between them: dragging it
+            # pulls a new route point out of the line
             p.setBrush(Qt.black)
             p.setPen(Qt.NoPen)
             for q in [QPointF(x, y) for x, y in self.obj.points] + list(self.ends):
                 p.drawRect(QRectF(q.x() - 3, q.y() - 3, 6, 6))
+            if not self.fsm_scene.readonly:
+                p.setBrush(Qt.NoBrush)
+                p.setPen(QPen(QColor(0, 0, 255), 0))
+                for _, q in self.mids:
+                    p.drawPolygon(QPolygonF([q + QPointF(0, -MID_R), q + QPointF(MID_R, 0), q + QPointF(0, MID_R),
+                                             q + QPointF(-MID_R, 0)]))
 
     # editing ---------------------------------------------------------------------
     def _hit(self, pos: QPointF) -> int | None:
@@ -1287,6 +1373,13 @@ class TransitionItem(QGraphicsPathItem):
                 return i
         for k, e in ((-1, self.ends[0]), (-2, self.ends[1])):
             if QLineF(pos, e).length() <= GRAB:
+                return k
+        return None
+
+    def _mid_hit(self, pos: QPointF) -> int | None:
+        """Index in obj.points for a route point pulled from the middle diamond under `pos`, or None."""
+        for k, q in self.mids:
+            if abs(pos.x() - q.x()) + abs(pos.y() - q.y()) <= MID_R + 2:
                 return k
         return None
 
@@ -1312,10 +1405,18 @@ class TransitionItem(QGraphicsPathItem):
         if e.button() != Qt.LeftButton or self.fsm_scene.readonly or self.fsm_scene.mode != 'select':
             return
         hit = self._hit(e.scenePos())
-        # As the legacy tool: only the handles move (route points, the two ends, the priority);
-        # a drag on the line itself does nothing. Route points are added from the right-click
-        # menu (Add Route).
+        # As the legacy tool: only the handles move (route points, the two ends, the priority, and
+        # the diamonds in the middle of the line, which pull out a new route point); a drag
+        # elsewhere on the line does nothing. Route points are also added from the right-click menu
+        # (Add Route).
         self._inserted = False
+        if hit is None and self.isSelected():
+            k = self._mid_hit(e.scenePos())
+            if k is not None:
+                q = dict(self.mids)[k]
+                self.obj.points.insert(k, [q.x(), q.y()])
+                self._inserted = True
+                hit = k
         self._drag = hit
         self._moved = False
         if hit is not None:
@@ -1355,6 +1456,9 @@ class TransitionItem(QGraphicsPathItem):
             drag, self._drag = self._drag, None
             if self._moved and drag in (-1, -2) and self._reconnect(drag, e.scenePos()):
                 return
+            if self._inserted and not self._moved:
+                del self.obj.points[drag]          # a click on a diamond: no new route point
+            self._inserted = False
             self.refresh()
             if self._moved:
                 self.fsm_scene.changed_model.emit()

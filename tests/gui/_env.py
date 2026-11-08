@@ -57,6 +57,8 @@ def make_project(dest: str) -> str:
 def setup() -> tuple[str, str, str]:
     """Make the project copy and the config dir, point the app at them; return (hdp, config
     dir, screenshot dir)."""
+    import faulthandler
+    faulthandler.enable()                        # a crash in Qt prints the Python stack (run_all shows it)
     root = os.environ.get('HDLSTUDIO_TEST_TMP')
     if not root:
         root = tempfile.mkdtemp(prefix='hdlstudio_gui_')
@@ -126,7 +128,14 @@ def legacy_bd(rel: str) -> str:
 
 
 def finish(fails: int):
-    """End a test: exit code 1 when a check failed. os._exit skips Qt's teardown, which can
-    hang with editor windows still open."""
+    """End a test: exit code 1 when a check failed. Qt's teardown is skipped (it can hang with
+    editor windows still open, or crash while its DLLs are unloaded)."""
     sys.stdout.flush()
-    os._exit(1 if fails else 0)
+    sys.stderr.flush()
+    code = 1 if fails else 0
+    if sys.platform == 'win32':
+        # end the process at once: unloading Qt's DLLs at exit sometimes crashes (0xc0000005)
+        # after every check has passed, which run_all would report as a failed test
+        import ctypes
+        ctypes.windll.kernel32.TerminateProcess(ctypes.windll.kernel32.GetCurrentProcess(), code)
+    os._exit(code)

@@ -20,7 +20,7 @@ import os
 import re
 from typing import Any, Iterator
 
-from model import (FsmView, Junction, Link, Machine, Parameter, Point, Signal,
+from model import (CATEGORY_CODES, set_category_label, FsmView, Junction, Link, Machine, Parameter, Point, Signal,
                      State, Transition)
 from .sexpr import Document, Node, Ref, parse_file
 from .names import META_DIR
@@ -179,6 +179,16 @@ def _node_geo(n: Node, cx: float, cy: float) -> dict:
     pent = next((s for s in _walk(n.get('shape')) if s.type == 'Pentagon'), None)
     if pent is not None and isinstance(pent.get('ro'), int) and pent.get('ro') != 270:
         g['ro'] = pent.get('ro')
+    if n.type == 'SmResetPoint':
+        # the reset icon: the edge (asynchronous reset) or the ring (synchronous reset), whichever
+        # the legacy tool shows
+        parts = [c for c in (n.get('shape').get('optionalChildren') or []) if isinstance(c, Node)]             if isinstance(n.get('shape'), Node) else []
+        wave = next((c for c in parts if c.type == 'OrthoPolyLine'), None)
+        ring = next((c for c in parts if c.type == 'Circle'), None)
+        if ring is not None and not _hidden(ring):
+            g['ring'] = True
+        if wave is not None and _hidden(wave):
+            g['no_wave'] = True
     for key, node in (('symbol', n.get('symbol')), ('name', n.get('name')), ('expr', n.get('caseExpr'))):
         t = _text_geo(node, cx, cy)
         if t:
@@ -234,20 +244,22 @@ def _signals(doc: Document) -> list[Signal]:
         decl = port.get('decl')
         mode = _MODE.get(port.get('m'), 'input')
         expr = n.get('expr') or ''
-        # signal category in the legacy file: cat 1 = clock, 8 = reset, 12 / 15 = enable
-        category = {None: 'data', 1: 'clock', 8: 'reset'}.get(n.get('cat'), 'enable')
-        if category == 'reset' and 'edge' in expr:
-            category = 'clock'
+        # signal category in the legacy file: its code (model.CATEGORY_CODES), cat absent = Data
+        label = next((k for k, v in CATEGORY_CODES.items() if v == n.get('cat')), 'Data')
+        if n.get('cat') is not None and label == 'Data':
+            label = 'Enable (High)'                  # a code not known yet: as before, an enable
         if mode in ('output', 'local'):
             scheme = 'none' if n.get('ass') == '<none>' else _SCHEME.get(n.get('scheme'), 'comb')
         else:
             scheme = 'none'
-        sigs.append(Signal(
+        sig = Signal(
             name=decl.get('n'), mode=mode, type=decl.get('t') or 'wire', bounds=decl.get('b') or '',
-            signed=bool(decl.get('s')), group=group_of.get(id(n), ''), category=category,
+            signed=bool(decl.get('s')), group=group_of.get(id(n), ''),
             expression=expr, scheme=scheme, default=n.get('defVal') or '', reset=n.get('rstVal') or '',
             comment=re.sub(r'^\s*//\s*', '', decl.get('eolc') or ''),
-            value=decl.get('iv') or '', array=decl.get('ub') or ''))
+            value=decl.get('iv') or '', array=decl.get('ub') or '')
+        set_category_label(sig, label, keep_expression=True)
+        sigs.append(sig)
     return sigs
 
 
@@ -487,10 +499,13 @@ def import_sm(path: str, library: str | None = None, unit: str | None = None) ->
     model = doc.get('model')
     lang = model.get('LanguageMgr') or ''
     texts = _labelled_texts(doc)
+    from .sheet import read_sheets
+    sheets = read_sheets(doc)
     view = FsmView(
         library=library, unit=unit, view=view_name,
         language='systemverilog' if 'SystemVerilog' in lang else 'verilog',
         signals=_signals(doc), parameters=_parameters(doc), machines=[],
+        signals_sheet=sheets[0], params_sheet=sheets[1],
         pre_module_directives=texts.get('Pre-module directives:', ''),
         post_module_directives=texts.get('Post-module directives:', ''),
         end_module_directives=texts.get('End-module directives:', ''),

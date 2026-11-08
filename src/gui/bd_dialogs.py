@@ -80,7 +80,7 @@ class ComponentPicker(QDialog):
 # ---------------------------------------------------------------------------
 CATEGORIES = [('Components', 'component'), ('Blocks', 'block'), ('Embedded Blocks', 'embedded'),
               ('ModuleWare', 'moduleware'), ('ExternalIPs', 'external_ip'), ('Signals', 'wire'),
-              ('Bundles', 'bundle'), ('Protocols', 'global_connector'), ('PortIOs', 'port_out'),
+              ('Bundles', 'bundle'), ('PortIOs', 'port_out'),
               ('Frames', 'frame'), ('Comment Text', 'comment'), ('Requirement Reference', 'drc'),
               ('Comment Graphics', 'panel'), ('User Declarations', ''), ('User Properties', '')]
 
@@ -115,9 +115,11 @@ class ObjectPropertiesDialog(QDialog):
             it = QTreeWidgetItem(self.tree, [name])
             if ic:
                 it.setIcon(0, icon(ic))
-            if name == category:
+            if name == category and category:
                 self.category_item = it
-            elif name not in ('User Declarations',):
+            elif name in ('User Declarations', 'User Properties'):
+                self._extra_items = getattr(self, '_extra_items', []) + [it]
+            else:
                 it.setDisabled(True)
                 if name != 'User Properties':
                     it.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
@@ -128,6 +130,19 @@ class ObjectPropertiesDialog(QDialog):
         bb.rejected.connect(self.reject)
         bb.button(QDialogButtonBox.Apply).clicked.connect(self.apply)
         bb.button(QDialogButtonBox.Help).setEnabled(False)
+        # User Declarations / User Properties: pages of their own (HDL Studio keeps neither: shown empty)
+        for it in getattr(self, '_extra_items', []):
+            page = QWidget(); pl = QVBoxLayout(page)
+            if it.text(0) == 'User Properties':
+                hint = QLabel('Add or modify properties associated with the selected object.\n'
+                              'It is not necessary to specify a Class for user-entered properties.')
+                hint.setEnabled(False); pl.addWidget(hint)
+                t = QTableWidget(1, 3); t.setHorizontalHeaderLabels(['Class', 'Name', 'Value'])
+                t.verticalHeader().hide(); t.setEnabled(False); pl.addWidget(t, 1)
+            else:
+                pl.addStretch(1)
+            self.stack.addWidget(page)
+            self._pages[id(it)] = (it, it.text(0), self.stack.count() - 1)
         body = QHBoxLayout(); body.addWidget(self.tree); body.addWidget(self.stack, 1)
         lay = QVBoxLayout(self); lay.addLayout(body, 1); lay.addWidget(bb)
         self.applied = False
@@ -207,7 +222,8 @@ class AppearancePage(QWidget):
         lay = QVBoxLayout(self)
         top = QHBoxLayout()
         col = QGroupBox('Color'); f = QFormLayout(col)
-        self.fg, self.bg, self.line = ColorButton(obj.fg), ColorButton(obj.bg), ColorButton(obj.line_color)
+        self.fg, self.bg = ColorButton(obj.fg), ColorButton(obj.bg)
+        self.line = ColorButton(obj.line_color or getattr(obj, 'kind_color', '#606060'))
         f.addRow('Foreground', self.fg); f.addRow('Background', self.bg); f.addRow('Line Color:', self.line)
         sty = QGroupBox('Style'); f = QFormLayout(sty)
         self.fill = QComboBox(); self.fill.addItems(FILL_STYLES)
@@ -659,7 +675,7 @@ class FramePropertiesDialog(QDialog):
     categories on the left (only Frames applies here), the frame page on the right."""
 
     CATEGORIES = ['Components', 'Blocks', 'Embedded Blocks', 'ModuleWare', 'ExternalIPs', 'Signals', 'Bundles',
-                  'Protocols', 'PortIOs', 'Frames', 'Comment Text', 'Requirement Reference', 'Comment Graphics',
+                  'PortIOs', 'Frames', 'Comment Text', 'Requirement Reference', 'Comment Graphics',
                   'User Declarations', 'User Properties']
 
     def __init__(self, frame, if_names: list[str], parent=None, apply=None):
@@ -748,3 +764,109 @@ def library_of_file(project, path: str, fallback: str) -> str:
             if lib.owns(path):
                 return lib.name
     return fallback
+
+
+class _SmallDialog(QDialog):
+    """A legacy one-page dialog: `page` above OK / Cancel (/ Apply / Help). `applied` is True once OK or
+    Apply wrote the page into its object; `on_apply` is called then (the editor redraws)."""
+
+    def __init__(self, title: str, page: QWidget, parent=None, apply_button: bool = True, on_apply=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.page, self.applied, self.on_apply = page, False, on_apply
+        buttons = QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        if apply_button:
+            buttons |= QDialogButtonBox.Apply | QDialogButtonBox.Help
+        bb = QDialogButtonBox(buttons)
+        bb.accepted.connect(lambda: (self._apply(), self.accept()))
+        bb.rejected.connect(self.reject)
+        if apply_button:
+            bb.button(QDialogButtonBox.Apply).clicked.connect(self._apply)
+            bb.button(QDialogButtonBox.Help).setEnabled(False)
+        lay = QVBoxLayout(self)
+        lay.addWidget(page, 1)
+        lay.addWidget(bb)
+
+    def _apply(self):
+        self.page.apply()
+        self.applied = True
+        if self.on_apply is not None:
+            self.on_apply()
+
+
+def edit_appearance_dialog(obj, parent=None, on_apply=None) -> QDialog:
+    """Appearance... of a component or PortIO popup menu: the legacy "Edit Appearance" dialog (colours,
+    fill / line style and width, and the Font box, greyed: the diagram font is fixed)."""
+    page = AppearancePage(obj)
+    font = QGroupBox('Font'); h = QHBoxLayout(font)
+    name = QLineEdit(); name.setEnabled(False); h.addWidget(name, 1)
+    b = QPushButton('Set...'); b.setEnabled(False); h.addWidget(b)
+    page.layout().insertWidget(1, font)
+    dlg = _SmallDialog('Edit Appearance', page, parent, on_apply=on_apply)
+    dlg.resize(490, 257)
+    return dlg
+
+
+def port_display_dialog(inst, parent=None, on_apply=None) -> QDialog:
+    """Port Visibility... of the component popup menu: the legacy "Port Display Control" dialog (the
+    fields shown next to every port of the component)."""
+    page = TextVisibilityPage(inst, 'Port', 'my_port')
+    dlg = _SmallDialog('Port Display Control', page, parent, apply_button=False, on_apply=on_apply)
+    dlg.resize(437, 423)
+    return dlg
+
+
+class EmbeddedPropertiesDialog(ObjectPropertiesDialog):
+    """BD Object Properties for an embedded block, as the legacy tool: the Embedded Block page (name and number,
+    each with Visible, Show Ports when connected) and the Text page (its HDL). Text Appearance, Text Box
+    Appearance and Block Appearance are listed greyed: HDL Studio draws embedded blocks in fixed colours."""
+
+    def __init__(self, eb, parent=None):
+        super().__init__('Embedded Blocks', parent)
+        self.eb = eb
+        w = QWidget()
+        v = QVBoxLayout(w)
+        box = QGroupBox('Embedded Block')
+        f = QFormLayout(box)
+        self.name = QLineEdit(eb.name)
+        self.name_visible = QCheckBox('Visible')
+        self.name_visible.setChecked(eb.show_name)
+        row = QHBoxLayout(); row.addWidget(self.name, 1); row.addWidget(self.name_visible)
+        f.addRow('Name:', row)
+        self.number = QLineEdit(str(eb.number))
+        num_visible = QCheckBox('Visible')
+        num_visible.setChecked(eb.show_name)
+        num_visible.setEnabled(False)           # shown together with the name in HDL Studio
+        self.name_visible.toggled.connect(num_visible.setChecked)
+        row = QHBoxLayout(); row.addWidget(self.number, 1); row.addWidget(num_visible)
+        f.addRow('Number:', row)
+        ports = QCheckBox('Show Ports when connected')
+        ports.setChecked(True)
+        ports.setEnabled(False)
+        f.addRow(ports)
+        v.addWidget(box)
+        v.addStretch(1)
+        first = self.add_page('', 'Embedded Blocks', w, child=False)
+        t = QWidget()
+        tv = QVBoxLayout(t)
+        self.text = QPlainTextEdit(eb.text.strip('\n'))
+        self.text.setFont(QFont('Courier New', 9))
+        self.text.setLineWrapMode(QPlainTextEdit.NoWrap)
+        tv.addWidget(self.text)
+        self.add_page('Text', 'Embedded Text', t)
+        for label in ('Text Appearance', 'Text Box Appearance', 'Block Appearance'):
+            QTreeWidgetItem(self.category_item, [label]).setDisabled(True)
+        self.show_page(first)
+        self.resize(671, 543)
+
+    def apply(self):
+        """Name (kept when empty), number, name visibility and the text."""
+        eb = self.eb
+        if self.name.text().strip():
+            eb.name = self.name.text().strip()
+        if self.number.text().strip().isdigit():
+            eb.number = int(self.number.text().strip())
+        eb.show_name = self.name_visible.isChecked()
+        if self.text.toPlainText() != eb.text.strip('\n'):
+            eb.text = self.text.toPlainText()
+        super().apply()

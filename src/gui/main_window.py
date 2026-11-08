@@ -36,7 +36,7 @@ from .code_view import CodeView
 from .diagram import FsmGraphicsView, FsmScene, _BoxItem, apply_select_filter
 from .icons import icon
 from . import editor_common as EC
-from .menus import arrange_menus, fsm_menus
+from .menus import arrange_menus, fsm_menus, table_menus
 from .toolbars import FSM_KEYS, FSM_TOOLBARS, build_toolbars, fill_toolbars_menu
 from .panels import PanelCommands
 from .props import PropertiesPanel
@@ -76,7 +76,7 @@ class MainWindow(QMainWindow, PanelCommands):
         # as in the legacy tool one page at a time, reached from the Structure Navigator and the menus
         self.tabs.tabBar().hide()
         self.tabs.setDocumentMode(True)
-        self.tabs.currentChanged.connect(lambda _i: self.update_title())
+        self.tabs.currentChanged.connect(lambda _i: (self.update_title(), self._sync_nav()))
         split = QSplitter(Qt.Horizontal)
         split.addWidget(self.tabs)
         code_box = QWidget(); cl = QVBoxLayout(code_box); cl.setContentsMargins(0, 0, 0, 0)
@@ -93,17 +93,13 @@ class MainWindow(QMainWindow, PanelCommands):
         dock.setObjectName('props')
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
         # Diagram Browser on the right with the Structure Navigator, as in the legacy tool
-        self.nav = QTreeWidget(); self.nav.setHeaderLabel('Structure Navigator')
         # Content (under the navigator, as in the legacy tool): the objects of the machine by kind
-        self.content = QTreeWidget(); self.content.setHeaderLabels(['Name', 'Concurrent Machine'])
+        from .diagram_browser import DiagramBrowser
+        self.browser = DiagramBrowser(['Name', 'Concurrent Machine'])
+        self.nav, self.content = self.browser.navigator, self.browser.content
         self.content.itemClicked.connect(self._content_clicked)
-        browser = QSplitter(Qt.Vertical)
-        browser.addWidget(self.nav)
-        cbox = QWidget(); cl2 = QVBoxLayout(cbox); cl2.setContentsMargins(0, 0, 0, 0)
-        cl2.addWidget(QLabel('Content')); cl2.addWidget(self.content)
-        browser.addWidget(cbox)
-        browser.setSizes([300, 250])
-        nav_dock = QDockWidget('Diagram Browser', self); nav_dock.setWidget(browser)
+        nav_dock = QDockWidget('Diagram Browser', self); nav_dock.setWidget(self.browser)
+        nav_dock.setTitleBarWidget(QWidget())       # the browser draws its own vertical tab
         nav_dock.setObjectName('nav')
         self.addDockWidget(Qt.RightDockWidgetArea, nav_dock)
         self.nav_dock, self.props_dock = nav_dock, dock
@@ -113,7 +109,7 @@ class MainWindow(QMainWindow, PanelCommands):
         self.addDockWidget(Qt.BottomDockWidgetArea, log_dock)
         self.log_dock = log_dock
         self.resizeDocks([log_dock], [110], Qt.Vertical)
-        self.resizeDocks([dock, nav_dock], [330, 230], Qt.Horizontal)
+        self.resizeDocks([dock, nav_dock], [330, 300], Qt.Horizontal)
         # HDL Studio's own panels: kept, hidden at start so the window looks like the legacy tool
         dock.hide()
         log_dock.hide()
@@ -130,10 +126,20 @@ class MainWindow(QMainWindow, PanelCommands):
         self.addAction(about)
         self._build_menu_commands()
         self._build_toolbars()
-        arrange_menus(self, fsm_menus(standalone=self.context is None, machines=self._fill_open_machine,
-                                      delete_machine=self._fill_delete_machine,
-                                      toolbars=lambda m: fill_toolbars_menu(self, m),
-                                      windows=lambda m: EC.fill_windows_menu(self, m)))
+        self._diagram_menus = lambda: fsm_menus(standalone=self.context is None, machines=self._fill_open_machine,
+                                                delete_machine=self._fill_delete_machine,
+                                                toolbars=lambda m: fill_toolbars_menu(self, m),
+                                                windows=lambda m: EC.fill_windows_menu(self, m))
+        arrange_menus(self, self._diagram_menus())
+        # the Signals / Parameters Table pages: their own menus and toolbars (table_page.py)
+        from .table_page import TablePages, fill_machine_tables
+        self.table_pages = TablePages(
+            self, 'fsm', {'signals': self.signals_tab, 'parameters': self.params_tab}, self.canvas,
+            self._diagram_menus,
+            lambda: table_menus(True, standalone=self.context is None, toolbars=lambda m: fill_toolbars_menu(self, m),
+                                windows=lambda m: EC.fill_windows_menu(self, m),
+                                machines=lambda m: fill_machine_tables(self, m)),
+            FSM_KEYS)
         self.statusBar().addWidget(QLabel('Ready'))      # as the legacy tool when no message is shown
         self.regen_timer = QTimer(self); self.regen_timer.setSingleShot(True); self.regen_timer.setInterval(250)
         self.regen_timer.timeout.connect(self.regenerate)
@@ -167,8 +173,7 @@ class MainWindow(QMainWindow, PanelCommands):
                 a.setEnabled(mode == 'select')
             self.props.setEnabled(False)
             for t in (self.signals_tab, self.params_tab):
-                t.table.setEditTriggers(QTableWidget.NoEditTriggers)
-                t.setEnabled(True)
+                t.set_readonly(True)
             self.scene.readonly = True
             self.statusBar().showMessage('Read-only: ' + self.context.readonly_reason)
 
@@ -360,7 +365,7 @@ class MainWindow(QMainWindow, PanelCommands):
         act('back', 'Back', lambda: hist.go(-1))
         act('forward', 'Forward', lambda: hist.go(1))
         act('save_as', 'Save As...', self.save_as if self.context is None else None)
-        act('page_setup', 'Page Setup...', mgr.page_setup if mgr else None)
+        act('page_setup', 'Page Setup...', (lambda: mgr.page_setup(self)) if mgr else None)
         act('print', 'Print...', lambda: EC.print_diagram(self, self.scene))
         act('print_window', 'Print Window...', lambda: EC.print_diagram(self, self.scene, self.canvas))
         act('document', 'Single Level', lambda: EC.document_single_level(
@@ -416,14 +421,14 @@ class MainWindow(QMainWindow, PanelCommands):
             act(key, text, edit(lambda checked=False, m=mode: self.add_signal(m)))
         act('add_machine', 'Concurrent State Machine', edit(self.add_machine))
         # Options / Window / Help
-        act('main_settings', 'Main...', mgr.main_settings if mgr else None)
-        act('verilog_options', 'Verilog...', mgr.verilog_options if mgr else None)
+        act('main_settings', 'Main...', (lambda: mgr.main_settings(self)) if mgr else None)
+        act('verilog_options', 'Verilog...', (lambda: mgr.verilog_options(self)) if mgr else None)
         act('log_window', 'Log Window', lambda: (self.log_dock.show(), self.log_dock.raise_()))
         act('design_manager', 'Design Manager',
             (lambda: (mgr.show(), mgr.raise_(), mgr.activateWindow())) if mgr else None)
         act('component_browser', 'Component Browser',
             getattr(mgr, 'show_component_browser', None) if mgr else None)
-        act('shortcuts_help', 'Keyboard Shortcuts', mgr._show_shortcuts if mgr else self._show_shortcuts)
+        act('shortcuts_help', 'Keyboard Shortcuts', (lambda: mgr._show_shortcuts(self)) if mgr else self._show_shortcuts)
         act('help_manuals', 'Help and Manuals', EC.open_user_guide, 'F1')
         act('regex_help', 'Regular Expressions', lambda: EC.show_regex_help(self))
         # F2 (edit the selected text) is in no legacy menu: keep its shortcut on the window
@@ -432,20 +437,28 @@ class MainWindow(QMainWindow, PanelCommands):
         hist.visited(self)
 
     def edit_object(self, obj):
-        """Double-click on an object. States and transitions: the legacy tool "SM Object Properties"
-        dialog; other objects: HDL Studio's Properties panel (shown when hidden)."""
-        from model import State, Transition
-        if isinstance(obj, (State, Transition)) and not self.scene.readonly:
+        """Double-click on an object. As in the legacy tool, a state, a transition (or its priority circle),
+        a junction, a link, the clock or the reset point opens "SM Object Properties" on the page of
+        that object (read-only diagram: shown, nothing applied); other points (interrupt, recovery,
+        enable): HDL Studio's Properties panel (shown when hidden)."""
+        from model import Junction, Link, Point, State, Transition
+        if isinstance(obj, (State, Transition, Junction, Link)) or                 (isinstance(obj, Point) and obj.kind in ('clock', 'reset')):
             from .sm_props_dialog import SmObjectPropertiesDialog
-            dlg = SmObjectPropertiesDialog(self.machine, [obj], self)
+            dlg = SmObjectPropertiesDialog(self.machine, [obj], self, view=self.view,
+                                           readonly=self.scene.readonly)
+            # Apply shows the change at once (diagram, tables, generated code), as OK does
+            dlg.applied_changes.connect(self._props_applied)
             dlg.exec()
-            if dlg.applied:
-                self.scene.load(self.view, self.machine)
-                self.scene.changed_model.emit()
             return
         self.props.show_object(obj, self.machine)
         self.props_dock.show()
         self.props_dock.raise_()
+
+    def _props_applied(self):
+        """SM Object Properties applied: redraw the diagram and record the change (one undo step)."""
+        self.scene.load(self.view, self.machine)
+        self.scene.changed_model.emit()
+        self.signals_tab.set_rows(self.view.signals, self.view.signals_sheet)   # clock / reset may change
 
     # -- clipboard ------------------------------------------------------------------------
     CLIP_MIME = 'application/x-hdlstudio-fsm'
@@ -604,57 +617,189 @@ class MainWindow(QMainWindow, PanelCommands):
 
     # -- Edit / View / Diagram commands --------------------------------------------------
     def find_replace(self, replace: bool):
-        """Edit > Find... / Replace...: the texts of the diagram (state names and actions, transition
-        conditions and actions, link targets, CASE expressions); a match is shown by selecting it."""
-        from model import Junction
+        """Edit > Find... / Replace...: the legacy Find and Replace dialog (find_dialog.py) over the
+        texts of the diagram, by the legacy tool's object kinds: state names and actions, transition
+        conditions and actions, comment texts, declaration blocks, State Machine Properties names
+        and the columns of the Signals Table. Find Next opens a text in place with the match
+        selected; one dialog per window, kept between uses."""
+        from .find_dialog import FSM_KINDS, FindReplaceDialog
+        dlg = getattr(self, '_find_dialog', None)
+        if dlg is None:
+            dlg = FindReplaceDialog(self, self._find_fields, self._find_done, FSM_KINDS, self._diagram_name(),
+                                    replace, self.scene.readonly)
+            self._find_dialog = dlg
+        dlg.diagram = self._diagram_name()
+        dlg.open_tab(replace)
 
-        def show(obj):
-            def run():
-                it = self.scene.item_for(obj.id) if not isinstance(obj, Transition) else \
-                    self.scene.trans_items.get(obj.id)
+    def _diagram_name(self) -> str:
+        v = self.view
+        return f'{v.library}/{v.unit}/{v.view} [{self.machine.name if self.machine else ""}]'
+
+    def _find_done(self):
+        """After a replacement: draw the diagram again, one undo step."""
+        self.scene.load(self.view, self.machine)
+        self.signals_tab.set_rows(self.view.signals, self.view.signals_sheet)
+        self.build_nav()
+        self.update_title()
+        self.scene.changed_model.emit()
+
+    def _find_fields(self) -> list:
+        """The texts Find and Replace searches, as find_dialog.TextField records."""
+        from .diagram import DeclBlockItem
+        from .find_dialog import TextField
+        m, v, sc = self.machine, self.view, self.scene
+        if m is None:
+            return []
+
+        def attr(obj, name):
+            return (lambda: getattr(obj, name) or ''), (lambda val: setattr(obj, name, val))
+
+        def on_diagram(obj_id, level=''):
+            """A function selecting a node / transition (at its level of the diagram) and showing it."""
+            def run(add=False):
+                self.tabs.setCurrentWidget(self.canvas)
+                if level != sc.level:
+                    self.show_level(level)
+                it = sc.item_for(obj_id) or sc.trans_items.get(obj_id)
                 if it is not None:
-                    self.tabs.setCurrentWidget(self.canvas)
-                    self.scene.clearSelection(); it.setSelected(True)
+                    if not add:
+                        sc.clearSelection()
+                    it.setSelected(True)
                     self.canvas.centerOn(it)
             return run
 
-        def field(where, obj, attr):
-            return EC.TextField(where, lambda: getattr(obj, attr), lambda v: setattr(obj, attr, v), show(obj))
+        def in_place(select, item_of, field):
+            """Show a text: its object selected, then the text opened in place with the match selected
+            (field None: the name of a state)."""
+            def run(span):
+                EC.mark_text(None, None)
+                select(False)
+                item = item_of()
+                if item is None:
+                    return
+                if sc.readonly:
+                    EC.mark_text(item, span) if hasattr(item, 'find_span') else None
+                    return
+                self.activateWindow()
+                if field is None:
+                    self.rename_state_inline(item, span)
+                else:
+                    self.edit_text_inline(item, field, span)
+            return run
 
-        def fields():
-            m = self.machine
-            out = []
-            def rename(state):
-                def run(new):
-                    for lk in m.links:              # links to the state follow its name
-                        if lk.target == state.name:
-                            lk.target = new
-                    state.name = new
-                return run
-            for s in m.states:
-                out.append(EC.TextField(f'State {s.name}', lambda s=s: s.name, rename(s), show(s)))
-                for attr, label in (('entry_actions', 'entry actions'), ('in_actions', 'state actions'),
-                                    ('exit_actions', 'exit actions')):
-                    if getattr(s, attr):
-                        out.append(field(f'State {s.name} {label}', s, attr))
-            for t in m.transitions:
-                src, dst = m.node(t.src), m.node(t.dst)
-                name = f'{getattr(src, "name", t.src)} -> {getattr(dst, "name", t.dst)}'
-                if t.cond:
-                    out.append(field(f'Transition {name} condition', t, 'cond'))
-                if t.actions:
-                    out.append(field(f'Transition {name} actions', t, 'actions'))
-            out += [field(f'Link {lk.target}', lk, 'target') for lk in m.links]
-            out += [field('CASE junction', j, 'expr') for j in m.junctions if isinstance(j, Junction) and j.expr]
-            return out
+        def marked(select, item_of):
+            """Show a text without an in-place editor (a comment text): selected, the match marked."""
+            def run(span):
+                select(False)
+                EC.mark_text(item_of(), span)
+            return run
 
-        def done():
-            self.scene.load(self.view, self.machine)
-            self.build_nav()
-            self.scene.changed_model.emit()
-        dlg = EC.FindReplaceDialog(self, fields, done, replace, self.scene.readonly)
-        dlg.show()
-        self._find_dialog = dlg
+        def only_select(select):
+            return lambda span: select(False)
+
+        out = []
+
+        def rename(state):
+            def run(new):
+                for lk in m.links:                  # links to the state follow its name
+                    if lk.target == state.name:
+                        lk.target = new
+                state.name = new
+            return run
+        for st in m.states:
+            sel = on_diagram(st.id, st.parent)
+            out.append(TextField('State name', f'State name of {st.name}', lambda st=st: st.name, rename(st),
+                                 in_place(sel, lambda st=st: sc.item_for(st.id), None), sel))
+            for a, label in (('entry_actions', 'On-Entry actions for State'), ('in_actions', 'Actions for State'),
+                             ('exit_actions', 'On-Exit actions for State')):
+                if getattr(st, a):
+                    g, w = attr(st, a)
+                    out.append(TextField('State actions', f'{label} {st.name}', g, w,
+                                         in_place(sel, lambda st=st: sc.action_boxes.get(st.id), a), sel))
+        for t in m.transitions:
+            src, dst = m.node(t.src), m.node(t.dst)
+            name = f'{getattr(src, "name", t.src)} -> {getattr(dst, "name", getattr(dst, "target", t.dst))}'
+            sel = on_diagram(t.id, getattr(src, 'parent', ''))
+            label = (lambda t=t: getattr(sc.trans_items.get(t.id), 'label', None))
+            for a, kind, what in (('cond', 'Transition conditions', 'Condition'),
+                                  ('actions', 'Transition actions', 'Actions')):
+                if getattr(t, a):
+                    g, w = attr(t, a)
+                    out.append(TextField(kind, f'{what} of Transition {name}', g, w, in_place(sel, label, a), sel))
+        for lk in m.links:
+            sel = on_diagram(lk.id, lk.parent)
+            g, w = attr(lk, 'target')
+            out.append(TextField('State name', f'Link to {lk.target}', g, w,
+                                 in_place(sel, lambda lk=lk: sc.item_for(lk.id), 'target'), sel))
+        for j in m.junctions:
+            if j.expr:
+                sel = on_diagram(j.id, j.parent)
+                g, w = attr(j, 'expr')
+                out.append(TextField('Transition conditions', 'CASE junction expression', g, w,
+                                     in_place(sel, lambda j=j: sc.item_for(j.id), 'expr'), sel))
+        for c in m.comments:
+            sel = on_diagram(c.id)
+            g, w = attr(c, 'text')
+            out.append(TextField('Comment text', 'Comment text', g, w,
+                                 marked(sel, lambda c=c: sc.item_for(c.id)), sel))
+
+        def block(key):
+            return lambda: next((i for i in sc.items() if isinstance(i, DeclBlockItem) and i.key == key), None)
+
+        def block_select(key):
+            def run(add=False):
+                if sc.level:
+                    self.show_level('')
+                self.tabs.setCurrentWidget(self.canvas)
+                it = block(key)()
+                if it is not None:
+                    if not add:
+                        sc.clearSelection()
+                    it.setSelected(True)
+                    self.canvas.centerOn(it)
+            return run
+        for kind, key, a, name in (
+                ('Compiler Directives', 'compdir', 'pre_module_directives', 'Pre-module directives'),
+                ('Compiler Directives', 'compdir', 'post_module_directives', 'Post-module directives'),
+                ('Compiler Directives', 'compdir', 'end_module_directives', 'End-module directives'),
+                ('Process Declaration Block', 'concurrent', 'concurrent_statements', 'Concurrent Statements'),
+                ('Process Declaration Block', 'statereg', 'state_register_statements',
+                 'State Register Statements'),
+                ('Process Declaration Block', 'global', 'global_pre_actions', 'Global Pre Actions'),
+                ('Process Declaration Block', 'global', 'global_post_actions', 'Global Post Actions')):
+            if getattr(v, a):
+                g, w = attr(v, a)
+                sel = block_select(key)
+                out.append(TextField(kind, name, g, w, in_place(sel, block(key), a), sel))
+        for a, name in (('name', 'Machine name'), ('current_state_name', 'Current state variable'),
+                        ('next_state_name', 'Next state variable')):
+            g, w = attr(m, a)
+            out.append(TextField('State machine properties', name, g, w,
+                                 lambda span: self.machine_properties(), None))
+
+        def cell(sig, a):
+            def run(span=None):
+                self.tabs.setCurrentWidget(self.signals_tab)
+                tbl = self.signals_tab.table
+                r, c = self.signals_tab.row_of(sig), self.signals_tab.column_of(a)
+                if r >= 0 and c >= 0:
+                    tbl.setCurrentCell(r, c)
+                    tbl.scrollToItem(tbl.item(r, c))
+            return run
+        for sig in v.signals:
+            for a, kind in (('name', 'Signals Name Column'), ('mode', 'Signals Mode Column'),
+                            ('type', 'Signals Type Column'), ('bounds', 'Signals Bounds Column'),
+                            ('category', 'Signals Category Column'), ('expression', 'Signals Expression Column'),
+                            ('scheme', 'Signals Scheme Column'), ('default', 'Signals Default Column'),
+                            ('reset', 'Signals Reset Column'), ('comment', 'Signals Comment Column'),
+                            ('group', 'Group Column/Row'), ('value', 'Signals Initial Column'),
+                            ('delay', 'Signals Delay Column')):
+                if not getattr(sig, a, ''):
+                    continue
+                g, w = attr(sig, a)
+                writable = a not in ('mode', 'category', 'scheme')       # choices, not free text
+                out.append(TextField(kind, f'{kind} ({sig.name})', g, w if writable else None, cell(sig, a), None))
+        return out
 
     def expression_builder(self):
         """Edit > Expression Builder: build a condition from the signals and operators of the diagram
@@ -778,13 +923,9 @@ class MainWindow(QMainWindow, PanelCommands):
             k += 1
         sig = Signal(name=f'{base}{k}', mode=mode, type='logic' if self.view.language == 'systemverilog' else 'wire')
         self.view.signals.append(sig)
-        self.signals_tab.set_rows(self.view.signals)
+        self.signals_tab.set_rows(self.view.signals, self.view.signals_sheet)
         self.tabs.setCurrentWidget(self.signals_tab)
-        row = len(self.view.signals) - 1
-        t = self.signals_tab.table
-        if row < t.rowCount():
-            t.setCurrentCell(row, 0)
-            t.editItem(t.item(row, 0))
+        self.signals_tab.edit_cell(sig, 'name')          # the new name is ready to type over
         self.model_changed()
 
     def change_to(self, kind: str):
@@ -1092,12 +1233,12 @@ class MainWindow(QMainWindow, PanelCommands):
             self.machine_properties({'concurrent': 'statements', 'statereg': 'statements', 'global': 'statements',
                                      'module': 'declarations'}.get(key, 'generation'))
 
-    def edit_text_inline(self, item, field: str):
+    def edit_text_inline(self, item, field: str, select: tuple[int, int] | None = None):
         """Edit one text of the diagram in place, in a box over it, as the legacy tool does on a
         double-click: a transition's condition / actions, a state's entry / state / exit actions,
         a link's target, a CASE junction's expression, a clock / enable expression, a text of
         the declaration blocks. Leaving the box (or Ctrl+Enter, Enter for one line) keeps the
-        text; Esc drops the edit."""
+        text; Esc drops the edit. `select` (start, end) is selected in the box (Find Next)."""
         from PySide6.QtWidgets import QLineEdit, QPlainTextEdit
         from .diagram import DeclBlockItem, JunctionItem, LinkItem, PointItem
         view, sc = self.view, self.scene
@@ -1127,6 +1268,7 @@ class MainWindow(QMainWindow, PanelCommands):
         ed.setGeometry(tl.x(), tl.y(), max(160, br.x() - tl.x() + 40),
                        max(26, br.y() - tl.y() + (40 if multiline else 4)))
         ed.setStyleSheet('border: 1px solid #0080c0; background: white;')
+        EC.select_span(ed, select)
         ed.show(); ed.setFocus()
         done = []
 
@@ -1135,13 +1277,16 @@ class MainWindow(QMainWindow, PanelCommands):
             if done:
                 return
             done.append(1)
-            new = ed.toPlainText() if multiline else ed.text().strip()
+            try:
+                new = ed.toPlainText() if multiline else ed.text().strip()
+            except RuntimeError:                # the box went with its window (closing, quitting)
+                return
             ed.deleteLater()
             if keep and new != old:
                 setattr(target, attr, new)
                 sc.load(view, self.machine)
                 sc.changed_model.emit()
-                self.signals_tab.set_rows(view.signals)
+                self.signals_tab.set_rows(view.signals, view.signals_sheet)
 
         class _Focus(QObject):
             """Event filter of the edit box: focus out keeps the text, Esc drops it, Enter (Ctrl+Enter in a
@@ -1163,15 +1308,17 @@ class MainWindow(QMainWindow, PanelCommands):
         ed._filter = _Focus(ed)
         ed.installEventFilter(ed._filter)
 
-    def rename_state_inline(self, item):
+    def rename_state_inline(self, item, select: tuple[int, int] | None = None):
         """Edit a state name in place, in a box over the name (the legacy tool: a double-click on the name).
         Enter or leaving the box renames the state, links to it follow; Esc keeps the old name.
-        An empty name or the name of another state is refused."""
+        An empty name or the name of another state is refused. `select` (start, end) is selected
+        instead of the whole name (Find Next)."""
         from PySide6.QtWidgets import QLineEdit
         s = item.obj
         vp = self.canvas.viewport()
         ed = QLineEdit(vp)
         ed.setText(s.name); ed.selectAll()
+        EC.select_span(ed, select)
         ed.setMinimumWidth(80); ed.adjustSize()
         p = self.canvas.mapFromScene(item.mapToScene(item.name_rect().center()))
         ed.move(p.x() - ed.width() // 2, p.y() - ed.height() // 2)
@@ -1258,6 +1405,10 @@ class MainWindow(QMainWindow, PanelCommands):
         """Select/Panning tools and the Add commands. Add commands repeat until
         Esc or the right button (Main Settings > Toolbar Buttons: Remain active); Ctrl while
         choosing one toggles that for the command."""
+        page = self.tabs.currentWidget()
+        if mode == 'select' and hasattr(getattr(page, 'table', None), 'unselect'):
+            page.table.unselect()           # Esc on a table page: no cell selected, the page stays
+            return
         from prefs import Prefs
         ctrl = bool(QApplication.keyboardModifiers() & Qt.ControlModifier)
         self._once = mode not in ('select', 'select_text', 'select_shape', 'pan') and \
@@ -1293,8 +1444,8 @@ class MainWindow(QMainWindow, PanelCommands):
         self.scene.level = ''
         self.scene.load(view, self.machine)
         apply_select_filter(self.scene, getattr(self, 'select_filter', 'any'), self._is_text)
-        self.signals_tab.set_rows(view.signals)
-        self.params_tab.set_rows(view.parameters)
+        self.signals_tab.set_rows(view.signals, view.signals_sheet)
+        self.params_tab.set_rows(view.parameters, view.params_sheet)
         self.props.show_object(None)
         self.sync_toolbar()
         self.build_nav()
@@ -1340,8 +1491,8 @@ class MainWindow(QMainWindow, PanelCommands):
         self.machine = view.machines[min(idx, len(view.machines) - 1)]
         self.scene.load(view, self.machine)
         apply_select_filter(self.scene, getattr(self, 'select_filter', 'any'), self._is_text)
-        self.signals_tab.set_rows(view.signals)
-        self.params_tab.set_rows(view.parameters)
+        self.signals_tab.set_rows(view.signals, view.signals_sheet)
+        self.params_tab.set_rows(view.parameters, view.params_sheet)
         self.props.show_object(None)
         self.sync_toolbar()
         self.build_nav()
@@ -1376,26 +1527,55 @@ class MainWindow(QMainWindow, PanelCommands):
         self.model_changed()
 
     def build_nav(self):
-        """Fill the Structure Navigator: tables, declaration blocks, machines and their states."""
+        """Fill the Structure Navigator as the legacy tool does: the two tables, the design unit
+        (a click shows the diagram) with its Declarations/Statements (Compiler Directives, Module
+        Declarations, Concurrent Statements, Signal Status) and its Concurrent Machines (their
+        states under them)."""
+        from .diagram_browser import nav_icon
         self.nav.clear()
         v = self.view
-        QTreeWidgetItem(self.nav, ['Signals Table']).setData(0, Qt.UserRole, 'signals')
-        QTreeWidgetItem(self.nav, ['Parameters Table']).setData(0, Qt.UserRole, 'params')
-        unit = QTreeWidgetItem(self.nav, [v.unit]); unit.setData(0, Qt.UserRole, 'props')
-        decl = QTreeWidgetItem(unit, ['Declarations/Statements']); decl.setData(0, Qt.UserRole, 'props')
-        for t, k in (('Compiler Directives', 'compdir'), ('Concurrent Statements', 'concurrent'),
-                     ('Global Actions', 'global')):
-            QTreeWidgetItem(decl, [t]).setData(0, Qt.UserRole, f'props:{k}')
-        machines = QTreeWidgetItem(unit, ['Concurrent Machines'])
+
+        def node(parent, text, key, icon_name=None):
+            it = QTreeWidgetItem(parent, [text])
+            it.setData(0, Qt.UserRole, key)
+            if icon_name:
+                it.setIcon(0, nav_icon(icon_name))
+            return it
+        node(self.nav, 'Signals Table', 'signals', 'signals')
+        node(self.nav, 'Parameters Table', 'params', 'params')
+        unit = node(self.nav, v.unit, 'diagram', 'unit')
+        decl = node(unit, 'Declarations/Statements', 'diagram')
+        for t, k, ic in (('Compiler Directives', 'compdir', 'compdir'), ('Module Declarations', 'module', 'decl'),
+                         ('Concurrent Statements', 'concurrent', 'concurrent'), ('Signal Status', 'statereg', 'decl')):
+            node(decl, t, f'props:{k}', ic)
+        machines = node(unit, 'Concurrent Machines', 'diagram', 'unit')
         for m in v.machines:
-            it = QTreeWidgetItem(machines, [m.name]); it.setData(0, Qt.UserRole, 'diagram')
+            it = node(machines, m.name, 'diagram', 'machine')
             for s in m.states:
-                QTreeWidgetItem(it, [s.name]).setData(0, Qt.UserRole, ('state', s.id))
+                node(it, s.name, ('state', s.id))
         self.build_content()
         for k in range(self.nav.topLevelItemCount()):        # The legacy tool shows the top entries in bold
             it = self.nav.topLevelItem(k)
             f = it.font(0); f.setBold(True); it.setFont(0, f)
         self.nav.expandToDepth(1)
+        self._sync_nav()
+
+    def _sync_nav(self):
+        """The navigator entry of the page shown: the design unit for the diagram, none for a table;
+        the Content pane lists objects for the diagram only."""
+        if not hasattr(self, 'browser'):
+            return
+        on_diagram = self.tabs.currentWidget() is self.canvas
+        self.nav.blockSignals(True)
+        self.nav.setCurrentItem(self.nav.topLevelItem(2) if on_diagram else None)
+        if not on_diagram:
+            self.nav.clearSelection()
+        self.nav.blockSignals(False)
+        self.browser.show_content(on_diagram)
+        if on_diagram:
+            self.build_content()
+        else:
+            self.content.clear()
 
     def on_nav(self, item, col):
         """A click in the Structure Navigator: show that page, open that block's dialog, or select and
@@ -1428,7 +1608,7 @@ class MainWindow(QMainWindow, PanelCommands):
             return
         self.content.clear()
         m = self.machine
-        if m is None:
+        if m is None or self.tabs.currentWidget() is not self.canvas:    # empty on the table pages
             return
         # the kinds the legacy tool lists there (junctions, links, recovery and interrupt points are
         # not listed; the legacy tool also lists comment texts, which HDL Studio's state diagrams do not have)

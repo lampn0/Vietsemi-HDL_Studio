@@ -46,6 +46,21 @@ def _extent(node) -> tuple[float, float, float, float]:
     return x1, y1, x2 - x1, y2 - y1
 
 
+def _xt_of(node) -> tuple[float, float] | None:
+    """Top-left (scene units) of a legacy text's own extent ("xt"), or None."""
+    xt = node.get('xt') if isinstance(node, Node) else None
+    if isinstance(xt, str) and xt.count(',') == 3:
+        x1, y1 = (float(v) * SCALE for v in xt.split(',')[:2])
+        return x1, y1
+    return None
+
+
+def _hidden_node(node) -> bool:
+    """Whether a legacy text is hidden (va isHidden 1)."""
+    va = node.get('va') if isinstance(node, Node) else None
+    return isinstance(va, Node) and va.get('isHidden') == 1
+
+
 def import_bd(path: str, library: str | None = None, unit: str | None = None) -> BlockDiagram:
     """Read a legacy block diagram (.bd) and return it as a BlockDiagram.
 
@@ -70,10 +85,13 @@ def import_bd(path: str, library: str | None = None, unit: str | None = None) ->
     model = doc.get('model')
     lang = model.get('LanguageMgr') or ''
     texts = _labelled_texts(doc)
+    from .sheet import read_sheets
+    sheets = read_sheets(doc)
     bd = BlockDiagram(
         library=library, unit=unit, view=os.path.splitext(parts[-1])[0],
         language='systemverilog' if 'SystemVerilog' in lang else 'verilog',
         signals=_signals(doc), parameters=_parameters(doc),
+        signals_sheet=sheets[0], params_sheet=sheets[1],
         pre_module_directives=texts.get('Pre-module directives:', ''),
         post_module_directives=texts.get('Post-module directives:', ''),
         end_module_directives=texts.get('End-module directives:', ''))
@@ -84,6 +102,22 @@ def import_bd(path: str, library: str | None = None, unit: str | None = None) ->
     if decl_block is not None:
         bd.pre_user_declarations = _text(decl_block.get('preUserText'))
         bd.post_user_declarations = _text(decl_block.get('postUserText'))
+    # where the Declarations and Compiler Directives blocks are drawn, and whether they show
+    blocks = {b.id: b for b in bd.text_blocks}
+    label = decl_block.get('declLabel') if decl_block is not None else None
+    if isinstance(label, Node) and _xt_of(label):
+        x, y = _xt_of(label)
+        blocks['decl'].x, blocks['decl'].y = x, y
+        blocks['decl'].visible = not _hidden_node(label)
+        port = decl_block.get('portLabel')
+        blocks['decl'].contents = isinstance(port, Node) and not _hidden_node(port)
+    comp = model.get('compDirBlock')
+    vec = comp.get('textVec') if isinstance(comp, Node) else None
+    title = vec[0] if isinstance(vec, list) and vec and isinstance(vec[0], Node) else None
+    if title is not None and _xt_of(title):
+        x, y = _xt_of(title)
+        blocks['dirs'].x, blocks['dirs'].y = x, y
+        blocks['dirs'].visible = not _hidden_node(title)
 
     # net name of each Net object
     net_name = {}

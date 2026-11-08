@@ -304,6 +304,48 @@ def bd_menus(toolbars: Callable | None = None, windows: Callable | None = None) 
 
 BD_MENUS = bd_menus()
 
+
+def table_menus(fsm: bool, standalone: bool = False, toolbars: Callable | None = None,
+                windows: Callable | None = None, machines: Callable | None = None) -> list:
+    """The menus of the Signals Table / Parameters Table pages, entry for entry as the legacy tool
+    shows them on a state diagram's tables (Table menu, no Diagram / Simulate / Animation)."""
+    none = (lambda m: None)
+    own = ['-', 'New', 'Open...', 'Import state machine (.sm)...'] if standalone else []
+    view = ['@refresh', ('&Toolbars', toolbars or none), '@status_bar', '@diagram_browser', '-']
+    view += ([('Table for machine', machines or none), '@show_diagram=State Machine'] if fsm
+             else ['@show_diagram=Block Diagram'])
+    table = ['@table_copy_picture=Copy Picture', '@compiler_directives', '-',
+             ('Export', ['@export_tsv=TSV (Tab delimited) file...', '@export_csv=CSV (Comma delimited) file...']),
+             ('Ports', ['@ports_comments=Comments...']),
+             ('Group', ['@table_group=Group', '@table_ungroup=UnGroup', '@table_expand=Expand All Groups',
+                        '@table_collapse=Collapse All Groups']),
+             ('Columns', ['@sort_asc=Sort Ascending', '@sort_desc=Sort Descending', '@hide_column=Hide Column',
+                          '@show_columns=Show Columns...']),
+             '@autofit=Autofit', '@table_filter=Filter', '@table_filter_settings=Filter Settings...', '-',
+             '@toggle_tables=Toggle Signals/Parameters Tables', '@show_grouped=Show Grouped']
+    if fsm:
+        table += ['@sm_props']
+    return [
+        ('&File', [('&New', ['@new_content=Design Content...', '@new_testbench=Test Bench...']),
+                   ('&Open', ['@open_up', '@open_interface=Interface']), '@save', '@save_as', '-',
+                   '@page_setup', '@print_window=Print Window...', '@print', '-',
+                   ('Document And Visualize', ['@document', '@document_hier', '@document_root'])] + own +
+         ['-', '@close_window', '@exit']),
+        ('&Edit', ['@undo', '@redo', '-', '@table_cut=Cut', '@table_copy=Copy', '@table_paste=Paste',
+                   ('Paste Special', ['@table_paste_system=Paste from system clipboard']), '@table_delete=Delete',
+                   '-', '@table_select_all=Select All', '-', '@find', '@replace', '-',
+                   '@table_appearance=Appearance...']),
+        ('&View', view),
+        ('&HDL', ['@generate_open', '@black_box=Black box for Synthesis']),
+        ('&Table', table),
+        ('&Tasks', _tasks(not fsm)),
+        ('&Add', ['@add_input_port=Input Port', '@add_output_port=Output Port', '@add_inout_port=InOut Port',
+                  '@add_local_signal=Local Signal', '@table_group_add=Group']),
+        ('&Options', ['@main_settings', '@verilog_options']),
+        ('&Window', _window(windows)),
+        ('&Help', _HELP),
+    ]
+
 DM_MENUS = [
     ('&File', ['New &Project', '&Open Project', 'Recent Projects', '-', 'New &Library', '&New Design Content',
                'Open HDL &File', '-', '&Close Project', 'E&xit']),
