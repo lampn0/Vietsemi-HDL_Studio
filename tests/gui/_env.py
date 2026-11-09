@@ -136,6 +136,12 @@ def finish(fails: int):
     if sys.platform == 'win32':
         # end the process at once: unloading Qt's DLLs at exit sometimes crashes (0xc0000005)
         # after every check has passed, which run_all would report as a failed test
+        # (the handle must be passed as a HANDLE: ctypes' default int cuts the pseudo handle -1 to
+        # 32 bits, and TerminateProcess then fails with ERROR_INVALID_HANDLE)
         import ctypes
-        ctypes.windll.kernel32.TerminateProcess(ctypes.windll.kernel32.GetCurrentProcess(), code)
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        k32.TerminateProcess.argtypes = (wintypes.HANDLE, wintypes.UINT)
+        k32.TerminateProcess(k32.GetCurrentProcess(), code)
     os._exit(code)
