@@ -55,8 +55,6 @@ from . import text_selection
 
 RED = QBrush(QColor(200, 0, 0))
 GREY = QBrush(QColor(130, 130, 130))
-BOLD = QFont()
-BOLD.setBold(True)
 
 
 # File > New > Registered View: (menu text, file extension) or (submenu, [(text, extension)])
@@ -234,7 +232,11 @@ class LibraryExplorer(QWidget):
                         vi.setForeground(c, GREY)
                 it.addChild(vi)
             if du.graphic_view() is not None:
-                it.setFont(0, BOLD)
+                # the pane's own font in bold (not a QFont made at import, before the application:
+                # on Linux that one does not match the font the item views use)
+                bold = QFont(self.units.font())
+                bold.setBold(True)
+                it.setFont(0, bold)
             self.units.addTopLevelItem(it)
         self.units.resizeColumnToContents(0)
 

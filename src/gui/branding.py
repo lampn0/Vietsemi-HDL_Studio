@@ -7,7 +7,7 @@
     show_about              Help > About
 
 The logo files are resources/images/Vietsemi_*.png in the repository; a PyInstaller build
-bundles them at the same relative path (resources/scripts/HDLStudio.spec). When a file cannot
+bundles them at the same relative path (scripts/HDLStudio.spec). When a file cannot
 be found the windows simply show no logo.
 """
 from __future__ import annotations

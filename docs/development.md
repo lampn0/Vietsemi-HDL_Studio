@@ -78,15 +78,18 @@ files of `HDLSTUDIO_SAMPLES`; tests that write work on temporary copies.
 
 ## 5. Packaging
 
-`resources/scripts/HDLStudio.spec` is the PyInstaller recipe. With PyInstaller installed:
+`scripts/HDLStudio.spec` is the PyInstaller recipe; [scripts/README.md](../scripts/README.md)
+describes the build, packaging and release scripts.
 
 ```
-powershell -ExecutionPolicy Bypass -File resources\scripts\build_windows.ps1     # Windows
-bash resources/scripts/build_linux.sh                                            # CentOS 9
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1     # Windows
+bash scripts/build_linux.sh                                       # Linux (CentOS 9)
 ```
 
-Both build `dist/HDLStudio/` and pack it as `dist/HDLStudio-<version>-<os>-x64.zip|tar.gz`
-(the version is `__version__` in `src/version.py`).
+Both prepare `.venv`, build `dist/HDLStudio/` and pack it as
+`dist/HDLStudio-<version>-<os>-x64.zip|tar.gz` with a `.sha256` file (the version is
+`__version__` in `src/version.py`). `-Release` / `--release` publishes the archives as the
+GitHub release `v<version>` (`scripts/release.py`).
 
 ## 6. Releasing a change
 

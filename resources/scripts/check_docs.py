@@ -31,7 +31,7 @@ def missing_docstrings() -> list[str]:
     """'file:line name' for every module / class / function without a docstring."""
     out = []
     files = (glob.glob('src/**/*.py', recursive=True) + glob.glob('bin/*.py')
-             + glob.glob('tests/**/*.py', recursive=True) + glob.glob('resources/scripts/*.py'))
+             + glob.glob('tests/**/*.py', recursive=True) + glob.glob('resources/scripts/*.py') + glob.glob('scripts/*.py'))
     for path in sorted(files):
         if _skipped(path):
             continue

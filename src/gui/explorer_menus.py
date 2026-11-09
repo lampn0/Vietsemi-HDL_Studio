@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QFontMetrics, QKeySequence
-from PySide6.QtWidgets import QApplication, QMenu, QStyle, QTreeWidget, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QStyle, QStyleOptionViewItem, QTreeWidget, QWidget
 
 from project.project import DesignUnit, Library, View
 
@@ -46,13 +46,34 @@ def text_item(tree: QTreeWidget, pos):
     if item is None:
         return None
     rect = tree.visualItemRect(item)              # first column, after the indentation
-    width = _PAD + QFontMetrics(item.font(0)).horizontalAdvance(item.text(0)) + 3 * _PAD
-    if not item.icon(0).isNull():
-        width += tree.iconSize().width() + _PAD
-    if item.data(0, Qt.CheckStateRole) is not None:     # check box before the icon
-        width += tree.style().pixelMetric(QStyle.PM_IndicatorWidth, None, tree) + _PAD
-    right = min(rect.left() + width, tree.header().sectionViewportPosition(0) + tree.columnWidth(0))
+    right = _text_right(tree, item)
+    if right is None or right <= rect.left():     # geometry unknown: never make a row unclickable
+        return item
     return item if rect.left() <= pos.x() <= right else None
+
+
+def _text_right(tree: QTreeWidget, item) -> int | None:
+    """Right end of the text of `item`'s first cell, as the style and the item delegate draw it.
+
+    The geometry comes from the style itself (SE_ItemViewItemText, with the view's own item font,
+    icon size and check box), the same as the selection highlight of gui/text_selection.py, so it is
+    right whatever the platform style, font and scaling: on Linux the item views often use another
+    font than the application, and an estimate from fixed metrics there left the text unclickable.
+    None when the geometry cannot be worked out.
+    """
+    try:
+        index = tree.indexFromItem(item, 0)
+        opt = QStyleOptionViewItem()
+        tree.initViewItemOption(opt)              # the view's font, icon size, ...
+        opt.rect = tree.visualRect(index)
+        tree.itemDelegate(index).initStyleOption(opt, index)
+        style = tree.style()
+        text = style.subElementRect(QStyle.SE_ItemViewItemText, opt, tree)
+        margin = style.pixelMetric(QStyle.PM_FocusFrameHMargin, None, tree) + 1
+        right = text.left() + QFontMetrics(opt.font).horizontalAdvance(opt.text) + 2 * margin + 2 * _PAD
+        return min(right, opt.rect.right())
+    except Exception:                             # noqa: BLE001 - a hit test must not break a click
+        return None
 
 
 _PAD = 4                                         # pixels around the icon and the text of a cell

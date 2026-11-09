@@ -8,7 +8,7 @@ __pycache__/
 .venv/
 venv/
 
-# Packaging output (PyInstaller, see resources/scripts/HDLStudio.spec)
+# Packaging output (PyInstaller, see scripts/README.md)
 build/
 dist/
 *.zip

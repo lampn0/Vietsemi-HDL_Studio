@@ -15,7 +15,7 @@ Last reviewed: 2026-11-07.
 | HDL generation | state machines and block diagrams; on the real project `dti_hbm` all 20 state machines and 45 of 46 block diagrams are identical to what the legacy tool generates |
 | Session restore, autosave / crash recovery, edit locks | working |
 | Editor menus and toolbars | laid out as the legacy editors (Standard, State / Block Diagram Tools, HDL Tools, Tasks), icons drawn in code; shared commands: Find / Replace, Align / Distribute, Copy Picture, Print, Back / Forward, Open Up, Comment Text, Panels, Document And Visualize (single level) |
-| Packaging | PyInstaller recipe for Windows (`resources/scripts/`); CentOS 9 runs from source |
+| Packaging | PyInstaller build, packaging and GitHub release for Windows and Linux (`scripts/`) |
 
 ## Open items
 

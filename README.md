@@ -61,7 +61,8 @@ hdl-studio/
 │   ├── version.py               version number
 │   └── gui/                     Qt user interface: Design Manager, editors, dialogs
 ├── libs/           HDL libraries shipped with the tool
-├── resources/      images/ (screenshots), drawings/ (doc diagrams), scripts/ (packaging)
+├── resources/      images/ (screenshots), drawings/ (doc diagrams), scripts/ (doc checks)
+├── scripts/        build, packaging and release (scripts/README.md)
 ├── examples/       example project (a UART built with HDL Studio)
 ├── tests/          unit tests and GUI tests (tests/README.md)
 ├── docs/           requirements, architecture, file formats, guides (docs/README.md)
@@ -91,11 +92,12 @@ python tests/gui/run_all.py                 # GUI tests: real windows, mouse and
 ## Building a release
 
 ```
-powershell -ExecutionPolicy Bypass -File resources\scripts\build_windows.ps1
-bash resources/scripts/build_linux.sh
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1     # Windows: dist/HDLStudio-<version>-windows-x64.zip
+bash scripts/build_linux.sh                                       # Linux:   dist/HDLStudio-<version>-linux-x64.tar.gz
 ```
 
-Both use PyInstaller (`pip install pyinstaller`) and write `dist/HDLStudio/` plus an archive.
+Add `-Release` / `--release` to publish the archives as the GitHub release `v<version>`.
+See [scripts/README.md](scripts/README.md).
 
 ## License
 

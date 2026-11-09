@@ -8,7 +8,7 @@
 This file is only a launcher: it puts ../src on the Python path, creates the Qt application
 and the DesignManager window, then hands control to the Qt event loop. All the real work is
 in src/. It is also the entry point PyInstaller freezes
-(resources/scripts/HDLStudio.spec).
+(scripts/HDLStudio.spec).
 """
 import os
 import sys
@@ -26,6 +26,36 @@ from gui.status import SplashScreen  # noqa: E402
 from version import APP_NAME, VENDOR  # noqa: E402
 
 
+def install_error_hook(dm: DesignManager) -> None:
+    """Make errors that escape a Qt slot visible. Without this hook such an error only prints a
+    traceback on stderr, which a packaged build started from a desktop does not show: the action
+    then simply does nothing. Each error is shown as a red line in the Log, and its full traceback is
+    appended to <user home>/logs/errors.log (and still printed on stderr)."""
+    import traceback
+    from datetime import datetime
+
+    import homes
+
+    def hook(kind, value, tb):
+        """sys.excepthook: stderr, errors.log, then the Log of the Design Manager."""
+        text = ''.join(traceback.format_exception(kind, value, tb))
+        sys.__excepthook__(kind, value, tb)
+        path = ''
+        try:
+            os.makedirs(homes.logs_dir(), exist_ok=True)
+            path = os.path.join(homes.logs_dir(), 'errors.log')
+            with open(path, 'a', encoding='utf-8') as f:
+                f.write(f'--- {datetime.now():%Y-%m-%d %H:%M:%S}\n{text}\n')
+        except OSError:
+            path = ''
+        try:
+            dm.log(f'Internal error: {kind.__name__}: {value}'
+                   + (f' (details: {path})' if path else ''), 'error', path)
+        except Exception:
+            pass
+    sys.excepthook = hook
+
+
 def main() -> int:
     """Create the application and the Design Manager, open the project / session, run Qt."""
     app = QApplication(sys.argv)
@@ -39,6 +69,7 @@ def main() -> int:
     splash.show()
     splash.status('Starting...')
     dm = DesignManager()
+    install_error_hook(dm)
     dm.progress.splash = splash         # library scanning is also shown on the splash
     dm.show()
     # Positional arguments (not starting with --) are project files; only the first is used.
