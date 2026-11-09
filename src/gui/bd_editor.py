@@ -74,6 +74,15 @@ PIN_HALF = 0.375 * GRID     # a component port is a triangle 0.75 grid long, fro
 _OUT = {'left': (-1, 0), 'right': (1, 0), 'top': (0, -1), 'bottom': (0, 1)}
 
 
+def stub_points(pin, net: str) -> list[list[float]]:
+    """A signal stub on component port `pin`: straight out of the port, on the grid, at least four grid
+    squares long and long enough for its name (centred on it) with one grid square free on each side,
+    so the name never has to be made room for by hand."""
+    tip, out = pin_end(pin), _OUT[pin.side]
+    length = max(4 * GRID, math.ceil((QFontMetricsF(MONO).horizontalAdvance(net) + 2 * GRID) / GRID) * GRID)
+    return [tip, [_snap(tip[0] + out[0] * length), _snap(tip[1] + out[1] * length)]]
+
+
 def pin_end(pin) -> list[float]:
     """Where a net meets a component port: the outer end of its triangle (base or apex)."""
     o = _OUT[pin.side]
@@ -2944,6 +2953,8 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         self.signals_tab.changed.connect(self.changed)
         self.params_tab.changed.connect(self.changed)
         self.canvas.mouseDoubleClickEvent = self._double_click
+        self._band_rect: QRectF | None = None
+        self.canvas.rubberBandChanged.connect(self._rubber_band)
 
         self._load(bd)
         if context is not None and context.readonly:
@@ -2996,9 +3007,9 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         self._act(em, '&Copy', self.copy, QKeySequence.Copy)
         self._act(em, '&Paste', lambda: self.paste(), QKeySequence.Paste)
         em.addSeparator()
-        a_stubs = self._act(em, 'Add Signal Stubs', lambda: self._for_selected(self.add_signal_stubs))
-        a_stubs_pio = self._act(em, 'Add Signal Stubs and PortIOs', lambda: self._for_selected(self.add_port_ios))
-        a_disc = self._act(em, 'Disconnect', lambda: self._for_selected(self.disconnect))
+        a_stubs = self._act(em, 'Add Signal Stubs', lambda: self._port_command('stubs'))
+        a_stubs_pio = self._act(em, 'Add Signal Stubs and PortIOs', lambda: self._port_command('portio'))
+        a_disc = self._act(em, 'Disconnect', lambda: self._port_command('disconnect'))
         a_rename = self._act(em, 'Rename &net...', lambda: self.rename_net(self._selected_net()))
         a_all = self._act(em, 'Select All', self.select_all)
         vm = self.menuBar().addMenu('&View')
@@ -4549,6 +4560,35 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         self._ensure_port(pio.name, mode)
         self._reload_scene()
 
+    def _port_command(self, what: str):
+        """Add Signal Stubs (Ctrl+F10), Add PortIO (Shift+F10) or Disconnect (Shift+Alt+C) from the menu bar
+        or the keyboard, as from the popup menus: on the selected component ports when there are some
+        (without asking for the kinds of ports), else on the selected components (Add Signal Stubs /
+        Add PortIO first ask which kinds of ports, as the component popup does)."""
+        pins = self.scene.pins_selected()
+        if pins:
+            insts = list({id(i): i for i, _ in pins}.values())
+            for inst in insts:
+                names = {p.name for i, p in pins if i is inst}
+                if what == 'stubs':
+                    self.add_signal_stubs(inst, pins=names)
+                elif what == 'portio':
+                    self.add_port_ios(inst, pins=names)
+                else:
+                    self.disconnect(inst, names)
+            return
+        insts = [it.obj for it in self.scene.selectedItems() if isinstance(it, InstanceItem)]
+        if not insts:
+            return
+        if what == 'disconnect':
+            for inst in insts:
+                self.disconnect(inst)
+        elif what == 'stubs':
+            self._ask_port_kinds('Add Signal Stubs', 'signal stubs',
+                                 lambda modes: [self.add_signal_stubs(i, modes) for i in insts])
+        else:
+            self._ask_port_kinds('Add PortIO', 'portIO', lambda modes: [self.add_port_ios(i, modes) for i in insts])
+
     def _for_selected(self, fn):
         """Call fn(instance) for every selected component."""
         for it in [i for i in self.scene.selectedItems() if isinstance(i, InstanceItem)]:
@@ -4557,6 +4597,10 @@ class BdEditorWindow(QMainWindow, PanelCommands):
     def properties_of_selection(self):
         """Object Properties (Alt+Enter) of the first selected object."""
         sel = self.scene.selectedItems()
+        pins = self.scene.pins_selected()
+        if not sel and pins:
+            # selected component ports: the Object Properties of their component (legacy tool)
+            return self.component_properties(pins[-1][0], 'component')
         if not sel:
             return
         it = sel[0]
@@ -4635,9 +4679,7 @@ class BdEditorWindow(QMainWindow, PanelCommands):
             pin.net = net
             if not any(s.name == net for s in self.bd.signals):
                 self.bd.signals.append(Sig(net, 'local', 'wire', pin.bounds))
-            tip, out = pin_end(pin), _OUT[pin.side]
-            self.bd.wires.append(BdWire(self._new_id('w'), net, [tip, [_snap(tip[0] + out[0] * 4 * GRID),
-                                                                      _snap(tip[1] + out[1] * 4 * GRID)]],
+            self.bd.wires.append(BdWire(self._new_id('w'), net, stub_points(pin, net),
                                         f'pin:{inst.id}:{pin.name}', ''))
             n += 1
         self.statusBar().showMessage(f'Added {n} signal stub(s)', 4000)
@@ -4657,9 +4699,7 @@ class BdEditorWindow(QMainWindow, PanelCommands):
                 if not net:
                     continue
                 pin.net = net
-                tip, out = pin_end(pin), _OUT[pin.side]
-                bd.wires.append(BdWire(self._new_id('w'), net, [tip, [_snap(tip[0] + out[0] * 4 * GRID),
-                                                                    _snap(tip[1] + out[1] * 4 * GRID)]],
+                bd.wires.append(BdWire(self._new_id('w'), net, stub_points(pin, net),
                                        f'pin:{inst.id}:{pin.name}', ''))
                 n += 1
         self.statusBar().showMessage(f'Connected {n} port(s) by name', 4000)
@@ -6118,6 +6158,41 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         """Delete the selection and refresh the Signal Table."""
         if self.scene.delete_selected():
             self.signals_tab.set_rows(self.bd.signals, self.bd.signals_sheet)
+
+    def _rubber_band(self, rect, from_scene: QPointF, to_scene: QPointF):
+        """Area selection, as in the legacy tool: a component is selected only when the area reaches its
+        body (Qt alone also takes it when the area only touches a port), and the component ports in the
+        area are selected too. Qt reports the band before it updates the selection, so the selection
+        is corrected just after, at every step of the drag and at its end (an empty band)."""
+        if not rect.isNull():
+            self._band_rect = QRectF(from_scene, to_scene).normalized()
+        area = self._band_rect
+        if rect.isNull():
+            self._band_rect = None
+        if area is not None and self.scene.mode == 'select':
+            QTimer.singleShot(0, lambda a=area: self._band_selection(a))
+
+    def _band_selection(self, area: QRectF):
+        """Correct the selection of the area `area` (scene): components whose body is outside it are
+        unselected, the component ports whose triangle is in it are selected."""
+        sc = self.scene
+        pins = []
+        for it in list(sc.items_by_id.values()):
+            if not isinstance(it, InstanceItem):
+                continue
+            o = it.obj
+            if it.isSelected() and not area.intersects(QRectF(o.x, o.y, o.w, o.h)):
+                it.setSelected(False)           # only its ports are in the area
+            for pin in o.pins:
+                tri = QRectF(pin.x - PIN_HALF, pin.y - PIN_HALF, 2 * PIN_HALF, 2 * PIN_HALF)
+                if area.intersects(tri):
+                    pins.append((o.id, pin.name))
+        if pins != sc.selected_pins:
+            changed = {k[0] for k in pins + sc.selected_pins}
+            sc.selected_pins = pins
+            for iid in changed:
+                if iid in sc.items_by_id:
+                    sc.items_by_id[iid].update()
 
     def _double_click(self, e):
         """Double-click on the canvas: an embedded block opens / creates its Text view, a component

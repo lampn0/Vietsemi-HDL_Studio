@@ -1,10 +1,12 @@
-"""Block Diagram Tools buttons, Ctrl+click on component ports, the port popup menu, a click and a
-double-click on a port name, and resizing a component by a handle (real diagram, nothing written)."""
+"""Block Diagram Tools buttons, Ctrl+click and area selection of component ports, the port popup menu
+and its keyboard shortcuts, a click and a double-click on a port name, and resizing a component by a
+handle (real diagram, nothing written)."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _env  # noqa: E402
 HDP, CFG, OUT = _env.setup()
-from PySide6.QtCore import QPoint, QRectF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QPainterPath
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu
 from formats.import_bd import import_bd
@@ -47,6 +49,29 @@ ok('the component itself stays unselected', not item.isSelected())
 QTest.mouseClick(vp, Qt.LeftButton, Qt.ControlModifier, view(item.mapToScene(left[1].x - inst.x, left[1].y - inst.y)))
 ok('Ctrl+click again unselects one', [p.name for _, p in sc.pins_selected()] == [left[0].name, left[2].name])
 
+# area selection (the view's rubber band: the selection of the area, then the end of the band)
+def area(r: QRectF):
+    """Select like a rubber band drawn over scene rectangle r."""
+    sc.select_pin(None, None)
+    path = QPainterPath(); path.addRect(r)
+    sc.setSelectionArea(path)
+    w._rubber_band(QRect(0, 0, 5, 5), r.topLeft(), r.bottomRight())
+    w._rubber_band(QRect(), QPointF(), QPointF())
+    QTest.qWait(30)                         # the selection is corrected just after the band
+right_pins = [p for p in inst.pins if p.side == 'right']
+ys = [p.y for p in right_pins]
+area(QRectF(inst.x + inst.w + 0.5, min(ys) - 2, 30, max(ys) - min(ys) + 4))   # up to the body edge
+ok('area over the ports only: the ports, not the component',
+   {p.name for _, p in sc.pins_selected()} == {p.name for p in right_pins} and not item.isSelected())
+area(QRectF(inst.x + inst.w - 10, min(ys) - 2, 40, max(ys) - min(ys) + 4))
+ok('area reaching the body: the component and its ports',
+   {p.name for _, p in sc.pins_selected()} == {p.name for p in right_pins} and item.isSelected())
+sc.clearSelection()
+QTest.mouseClick(vp, Qt.LeftButton, Qt.NoModifier, view(item.mapToScene(left[0].x - inst.x, left[0].y - inst.y)))
+for pin in left[1:]:
+    QTest.mouseClick(vp, Qt.LeftButton, Qt.ControlModifier, view(item.mapToScene(pin.x - inst.x, pin.y - inst.y)))
+QTest.mouseClick(vp, Qt.LeftButton, Qt.ControlModifier, view(item.mapToScene(left[1].x - inst.x, left[1].y - inst.y)))
+
 # the port popup menu, as the legacy tool shows it; its commands act on the selected ports only
 m = QMenu(); w._pin_menu(m, inst, False)
 names = [a.text().replace('&', '') or '-' for a in m.actions()]
@@ -59,9 +84,29 @@ m.actions()[0].trigger()
 ok('Disconnect detaches only the selected ports',
    not any(r in refs for x in bd.wires for r in (x.start, x.end)) and others() == n_others)
 
+# the same commands from the keyboard act on the selected ports (Ctrl+F10, Shift+F10, Shift+Alt+C)
+item = sc.items_by_id[inst.id]          # the command rebuilt the scene
+p_key = left[0]
+ref = f'pin:{inst.id}:{p_key.name}'
+on_pin = lambda: sum(1 for x in bd.wires if ref in (x.start, x.end))
+QTest.mouseClick(vp, Qt.LeftButton, Qt.NoModifier, view(item.mapToScene(p_key.x - inst.x, p_key.y - inst.y)))
+w.activateWindow(); cv.setFocus(); QTest.qWait(50)
+QTest.keyClick(vp, Qt.Key_F10, Qt.ControlModifier); QTest.qWait(50)
+ok('Ctrl+F10 adds a signal stub on the selected port', on_pin() == 1)
+stub = next(x for x in bd.wires if ref in (x.start, x.end))
+r = sc.wire_items[stub.id].label_rect()
+xs = sorted(pt[0] for pt in stub.points)
+ok(f'the stub is longer than its name ({xs[-1] - xs[0]:.0f} > {r.width():.0f})',
+   xs[0] <= r.left() and r.right() <= xs[-1])
+QTest.keyClick(vp, Qt.Key_C, Qt.ShiftModifier | Qt.AltModifier); QTest.qWait(50)
+ok('Shift+Alt+C disconnects the selected port', on_pin() == 0)
+n_pio = len(bd.port_ios)
+QTest.keyClick(vp, Qt.Key_F10, Qt.ShiftModifier); QTest.qWait(50)
+ok('Shift+F10 adds a PortIO on the selected port', on_pin() == 1 and len(bd.port_ios) == n_pio + 1)
+
 # a click on a port name selects that name on its own; a double-click says it is read only
 item = sc.items_by_id[inst.id]          # the command rebuilt the scene
-pin =next(p for p in inst.pins if p.side == 'right')
+pin = next(p for p in inst.pins if p.side == 'right')
 at = view(item.mapToScene(item.pin_label_rect(pin).center()))
 QTest.mouseClick(vp, Qt.LeftButton, Qt.NoModifier, at)
 ok('click on a port name selects the name', sc.selected_text == (inst.id, 'pin:' + pin.name) and not item.isSelected())
