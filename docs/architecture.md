@@ -137,7 +137,10 @@ autosave offers to recover it.
   legacy tool generates: the output must stay identical to it.
 * **Another legacy object in a `.sm`:** read it in `formats/import_sm.py` (keep its geometry in
   `orig`), write it in `formats/export_sm.py` (from the templates the file holds), draw it in
-  `gui/diagram.py`; check that a file saved without edits is written back byte for byte.
+  `gui/diagram.py`; check that a file saved without edits is written back byte for byte. Write
+  what you learned about the object in `resources/scripts/format_notes.py` and run
+  `python resources/scripts/format_ref.py` to update
+  [formats/sm-sb-bd-reference.html](formats/sm-sb-bd-reference.html).
 * **A preference:** add a field with a default to `prefs.Prefs` (old preference files keep
   working), a widget to the dialog, and read it where it is used.
 

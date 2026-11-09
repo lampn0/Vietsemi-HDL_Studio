@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<!-- Template of docs/formats/sm-sb-bd-reference.html. Do not edit the generated page: edit this file
+     or format_notes.py, then run python resources/scripts/format_ref.py -->
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+:root {
+  --bg: #ffffff; --bg2: #f6f7f9; --bg3: #eceef2; --fg: #1d2129; --fg2: #5b6270; --line: #dfe2e8;
+  --accent: #1f6feb; --accent-bg: #e8f0fe; --warn: #9a5b00; --warn-bg: #fff4e0; --ok: #1a7f37; --ok-bg: #e6f4ea;
+  --mark: #fff1a8; --code-bg: #f3f4f6; --bd: #8250df; --bd-bg: #f3ecff; --mono: Consolas, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171c; --bg2: #1c1f26; --bg3: #262a33; --fg: #e3e6ec; --fg2: #9aa2b1; --line: #313642;
+    --accent: #6ea8ff; --accent-bg: #1d2a42; --warn: #f0b45a; --warn-bg: #3a2c14; --ok: #5cc27a; --ok-bg: #173022;
+    --mark: #5b4d00; --code-bg: #1f232b; --bd: #c4a5ff; --bd-bg: #2b2140;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font: 14px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: var(--fg); background: var(--bg);
+       display: grid; grid-template-columns: 300px 1fr; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
+code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow: auto; margin: 8px 0; line-height: 1.4; }
+mark { background: var(--mark); color: inherit; border-radius: 2px; }
+
+/* sidebar */
+#side { position: sticky; top: 0; height: 100vh; overflow: auto; background: var(--bg2); border-right: 1px solid var(--line);
+        padding: 14px 12px 40px; }
+#side h1 { font-size: 15px; margin: 0 0 2px; }
+#side .meta { color: var(--fg2); font-size: 12px; margin-bottom: 10px; }
+#q { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font-size: 14px; }
+#q:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.filters { margin: 8px 0 12px; display: grid; gap: 3px; font-size: 12.5px; color: var(--fg2); }
+.filters label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg2); margin: 14px 0 4px; }
+.nav a { display: flex; justify-content: space-between; gap: 6px; padding: 2px 6px; border-radius: 4px; color: var(--fg); font-size: 13px; }
+.nav a:hover { background: var(--bg3); text-decoration: none; }
+.nav a.cur { background: var(--accent-bg); color: var(--accent); }
+.nav a .n { color: var(--fg2); font-size: 11px; }
+.nav a.undoc span:first-child::after { content: " ·"; color: var(--warn); }
+
+/* main */
+#main { padding: 22px 34px 80px; max-width: 1280px; min-width: 0; }
+#main > h1 { font-size: 24px; margin: 0 0 4px; }
+.lead { color: var(--fg2); margin: 0 0 18px; }
+section.topic { border-bottom: 1px solid var(--line); padding: 6px 0 18px; }
+section.topic h2, .cat-title { font-size: 19px; margin: 22px 0 8px; }
+section.topic h3 { font-size: 15px; margin: 16px 0 6px; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td { border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+th { background: var(--bg2); font-weight: 600; font-size: 12.5px; position: sticky; top: 0; z-index: 1; }
+.cat-title { padding-top: 10px; border-top: 2px solid var(--line); }
+
+.card { border: 1px solid var(--line); border-radius: 8px; margin: 14px 0; background: var(--bg); }
+.card > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; padding: 10px 14px; background: var(--bg2);
+                 border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; }
+.card > header h3 { margin: 0; font: 600 16px var(--mono); }
+.card > header .anchor { color: var(--fg2); font-size: 13px; }
+.card .body { padding: 8px 14px 12px; }
+.chip { display: inline-block; font-size: 11.5px; padding: 0 7px; border-radius: 10px; background: var(--bg3); color: var(--fg2); white-space: nowrap; }
+.chip.sm { background: var(--accent-bg); color: var(--accent); }
+.chip.sb { background: var(--ok-bg); color: var(--ok); }
+.chip.bd { background: var(--bd-bg); color: var(--bd); }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.code { background: var(--ok-bg); color: var(--ok); }
+.note { margin: 6px 0; }
+.note p { margin: 4px 0; }
+.missing { color: var(--warn); font-style: italic; }
+.parents { color: var(--fg2); font-size: 12.5px; margin: 4px 0; }
+.keys td:first-child { font-family: var(--mono); white-space: nowrap; font-weight: 600; }
+.keys tr.common td { color: var(--fg2); }
+.keys tr.common td:first-child { font-weight: 400; }
+.keys tr.hit td { background: var(--mark); }
+.keys .pct { white-space: nowrap; font-size: 12px; color: var(--fg2); }
+.keys .kind { font-family: var(--mono); font-size: 12px; }
+.keys .vals { font-family: var(--mono); font-size: 12px; max-width: 320px; overflow-wrap: anywhere; }
+.keys .vals span { display: inline-block; margin: 0 6px 2px 0; padding: 0 4px; background: var(--code-bg); border-radius: 3px; }
+.keys .vals span i { color: var(--fg2); font-style: normal; }
+.keys .codecol { font-size: 12px; white-space: nowrap; }
+.keys .codecol a { display: block; }
+.keys td.notecol { min-width: 260px; }
+details { margin-top: 8px; }
+details summary { cursor: pointer; color: var(--fg2); font-size: 13px; }
+.hide { display: none !important; }
+#empty { color: var(--fg2); padding: 30px 0; }
+.legend { font-size: 12.5px; color: var(--fg2); }
+@media (max-width: 900px) { body { grid-template-columns: 1fr; } #side { position: static; height: auto; } }
+</style>
+</head>
+<body>
+<nav id="side">
+  <h1>{{TITLE}}</h1>
+  <div class="meta" id="meta"></div>
+  <input id="q" type="search" placeholder="Tìm kiểu, khóa, ý nghĩa… (/)" autocomplete="off">
+  <div class="filters">
+    <label><input type="checkbox" id="f-sm" checked> có trong <code>.sm</code></label>
+    <label><input type="checkbox" id="f-sb" checked> có trong <code>.sb</code></label>
+    <label><input type="checkbox" id="f-bd" checked> có trong <code>.bd</code></label>
+    <label><input type="checkbox" id="f-common"> hiện khóa chung (uid, va, xt…)</label>
+    <label><input type="checkbox" id="f-code"> chỉ khóa mà code HDL Studio dùng</label>
+    <label><input type="checkbox" id="f-undoc"> chỉ kiểu chưa có chú thích</label>
+  </div>
+  <div class="nav" id="nav"></div>
+</nav>
+<main id="main">
+  <h1>{{TITLE}}</h1>
+  <p class="lead" id="lead"></p>
+  <div id="topics"></div>
+  <div id="types"></div>
+  <div id="empty" class="hide">Không có kết quả.</div>
+</main>
+<script>
+const DATA = /*DATA*/null;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const SRC = '../../';                       // repository root, seen from docs/formats/
+
+function codeLinks(refs, total) {
+  if (!refs.length) return '';
+  const links = refs.slice(0, 4).map(r => {
+    const [file, line] = r.split(':');
+    return `<a href="${SRC}${file}#L${line}" title="${esc(r)}">${esc(file.split('/').pop())}:${line}</a>`;
+  });
+  if (total > 4) links.push(`<span class="chip">+${total - 4}</span>`);
+  return links.join('');
+}
+
+function keyRow(t, k) {
+  const vals = k.values.length
+    ? k.values.map(([v, c]) => `<span>${esc(v)} <i>×${c}</i></span>`).join('')
+    : k.examples.map(v => `<span>${esc(v)}</span>`).join('');
+  const where = k.n ? `${k.pct}%` + (k.repeat ? ' <span class="chip" title="khóa lặp lại trong cùng một object">lặp</span>' : '')
+                    : '<span class="chip warn">chưa thấy trong mẫu</span>';
+  const inChips = k.in.length === 1 ? ` <span class="chip ${k.in[0]}">.${k.in[0]}</span>` : '';
+  return `<tr class="${k.common ? 'common' : ''}" data-key="${esc(k.key)}" data-code="${k.ncode ? 1 : 0}">
+    <td id="k-${esc(t.type)}-${esc(k.key)}">${esc(k.key)}</td>
+    <td class="pct">${where}${inChips}</td>
+    <td class="kind">${k.kinds.map(esc).join('<br>')}</td>
+    <td class="vals">${vals}</td>
+    <td class="notecol">${k.note || ''}</td>
+    <td class="codecol">${codeLinks(k.code, k.ncode)}</td></tr>`;
+}
+
+function typeCard(t) {
+  const counts = ['sm', 'sb', 'bd'].filter(x => t.count[x]).map(x => `<span class="chip ${x}">.${x} ×${t.count[x]}</span>`).join(' ');
+  const parents = t.parents.map(([p, c]) => `<code>${esc(p)}</code>`).join(', ');
+  const code = t.ncode ? `<span class="chip code" title="tên kiểu xuất hiện trong code">code</span>` : '';
+  return `<article class="card" id="t-${esc(t.type)}" data-type="${esc(t.type)}"
+      data-sm="${t.count.sm ? 1 : 0}" data-sb="${t.count.sb ? 1 : 0}" data-bd="${t.count.bd ? 1 : 0}" data-doc="${t.note ? 1 : 0}">
+    <header><h3>${esc(t.type)}</h3>${counts}
+      ${t.labelled ? `<span class="chip" title="object có nhãn *N, được tham chiếu bằng &N">*N ×${t.labelled}</span>` : ''}
+      ${code} <a class="anchor" href="#t-${esc(t.type)}">#</a></header>
+    <div class="body">
+      <div class="note">${t.note || '<span class="missing">Chưa có chú thích.</span>'}</div>
+      ${parents ? `<div class="parents">Nằm trong: ${parents}</div>` : ''}
+      ${t.ncode ? `<div class="parents">Code nhắc tới kiểu này: ${codeLinks(t.code, t.ncode).replace(/<\/a>/g, '</a> ')}</div>` : ''}
+      <table class="keys"><thead><tr><th>Khóa</th><th>Có mặt</th><th>Kiểu giá trị</th><th>Giá trị (×số lần) / ví dụ</th><th>Ý nghĩa</th><th>Code</th></tr></thead>
+      <tbody>${t.keys.map(k => keyRow(t, k)).join('')}</tbody></table>
+      ${t.example ? `<details><summary>Ví dụ trong file .${t.example_in}</summary><pre>${esc(t.example)}</pre></details>` : ''}
+    </div></article>`;
+}
+
+function render() {
+  const nf = DATA.files;
+  $('#meta').innerHTML = `Sinh ngày ${DATA.generated}${DATA.commit ? ' · commit ' + esc(DATA.commit) : ''}<br>
+    Quét ${nf.sm || 0} file .sm, ${nf.sb || 0} file .sb, ${nf.bd || 0} file .bd · ${DATA.types.length} kiểu object`;
+  $('#lead').innerHTML = `Tra cứu cú pháp file state diagram <code>.sm</code>, symbol <code>.sb</code> và block diagram
+    <code>.bd</code> của tool cũ.
+    Phần chủ đề viết tay; bảng kiểu/khóa sinh tự động từ file mẫu và từ code. Phím <code>/</code> để tìm.`;
+  $('#topics').innerHTML = DATA.topics.map(t => `<section class="topic" id="topic-${t.id}"><h2>${esc(t.title)}</h2>${t.html}</section>`).join('')
+    + (DATA.changes.length ? `<section class="topic" id="topic-changes"><h2>Lịch sử cập nhật</h2><table><tr><th>Ngày</th><th>Nội dung</th></tr>${
+        DATA.changes.map(([d, s]) => `<tr><td class="mono">${esc(d)}</td><td>${s}</td></tr>`).join('')}</table></section>` : '');
+  let html = '', cat = null;
+  for (const t of DATA.types) {
+    if (t.cat !== cat) { cat = t.cat; html += `<h2 class="cat-title" id="cat-${esc(cat)}" data-cat="${esc(cat)}">${esc(DATA.categories[cat] || cat)}</h2>`; }
+    html += typeCard(t);
+  }
+  $('#types').innerHTML = html;
+  let nav = '<h2>Chủ đề</h2>' + DATA.topics.map(t => `<a href="#topic-${t.id}"><span>${esc(t.title)}</span></a>`).join('')
+          + (DATA.changes.length ? '<a href="#topic-changes"><span>Lịch sử cập nhật</span></a>' : '');
+  cat = null;
+  for (const t of DATA.types) {
+    if (t.cat !== cat) { cat = t.cat; nav += `<h2 data-cat="${esc(cat)}">${esc(DATA.categories[cat] || cat)}</h2>`; }
+    const n = (t.count.sm || 0) + (t.count.sb || 0);
+    nav += `<a href="#t-${esc(t.type)}" data-type="${esc(t.type)}" class="${t.note ? '' : 'undoc'}"><span>${esc(t.type)}</span><span class="n">${n}</span></a>`;
+  }
+  $('#nav').innerHTML = nav;
+}
+
+function textOf(el) { return el.textContent.toLowerCase(); }
+
+function applyFilters() {
+  const q = $('#q').value.trim().toLowerCase();
+  const sm = $('#f-sm').checked, sb = $('#f-sb').checked, bd = $('#f-bd').checked, common = $('#f-common').checked;
+  const onlyCode = $('#f-code').checked, onlyUndoc = $('#f-undoc').checked;
+  let shown = 0;
+  const visibleTypes = new Set();
+  document.querySelectorAll('.card').forEach(card => {
+    let ok = (sm && card.dataset.sm === '1') || (sb && card.dataset.sb === '1') || (bd && card.dataset.bd === '1');
+    if (onlyUndoc && card.dataset.doc === '1') ok = false;
+    const typeHit = q && card.dataset.type.toLowerCase().includes(q);
+    const noteHit = q && textOf($('.note', card)).includes(q);
+    let rowHit = false;
+    card.querySelectorAll('tbody tr').forEach(tr => {
+      const hit = q && (tr.dataset.key.toLowerCase().includes(q) || textOf(tr.cells[4]).includes(q) || textOf(tr.cells[3]).includes(q));
+      tr.classList.toggle('hit', !!hit);
+      if (hit) rowHit = true;
+      let show = (common || !tr.classList.contains('common') || hit);
+      if (onlyCode && tr.dataset.code !== '1') show = false;
+      tr.classList.toggle('hide', !show);
+    });
+    if (q && !(typeHit || noteHit || rowHit)) ok = false;
+    card.classList.toggle('hide', !ok);
+    if (ok) { shown++; visibleTypes.add(card.dataset.type); }
+  });
+  document.querySelectorAll('.cat-title').forEach(h => {
+    let el = h.nextElementSibling, any = false;
+    while (el && !el.classList.contains('cat-title')) { if (!el.classList.contains('hide')) any = true; el = el.nextElementSibling; }
+    h.classList.toggle('hide', !any);
+  });
+  document.querySelectorAll('#nav a[data-type]').forEach(a => a.classList.toggle('hide', !visibleTypes.has(a.dataset.type)));
+  document.querySelectorAll('#nav h2[data-cat]').forEach(h => {
+    let el = h.nextElementSibling, any = false;
+    while (el && el.tagName === 'A') { if (!el.classList.contains('hide')) any = true; el = el.nextElementSibling; }
+    h.classList.toggle('hide', !any);
+  });
+  document.querySelectorAll('section.topic').forEach(s => s.classList.toggle('hide', !!q && !textOf(s).includes(q)));
+  $('#empty').classList.toggle('hide', shown > 0 || document.querySelector('section.topic:not(.hide)'));
+}
+
+function markCurrent() {
+  document.querySelectorAll('#nav a.cur').forEach(a => a.classList.remove('cur'));
+  const a = document.querySelector(`#nav a[href="${CSS.escape(location.hash)}"]`);
+  if (a) { a.classList.add('cur'); a.scrollIntoView({block: 'nearest'}); }
+}
+
+render();
+['#q', '#f-sm', '#f-sb', '#f-bd', '#f-common', '#f-code', '#f-undoc'].forEach(s => $(s).addEventListener('input', applyFilters));
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== $('#q')) { e.preventDefault(); $('#q').focus(); $('#q').select(); }
+  if (e.key === 'Escape' && document.activeElement === $('#q')) { $('#q').value = ''; applyFilters(); }
+});
+window.addEventListener('hashchange', markCurrent);
+applyFilters();
+if (location.hash) { const el = document.getElementById(decodeURIComponent(location.hash.slice(1))); if (el) el.scrollIntoView(); markCurrent(); }
+</script>
+</body>
+</html>
