@@ -49,7 +49,7 @@ ok('click on the dashed border selects the frame', fr_item.isSelected())
 sc.context_requested.emit(fr_item, vp.mapToGlobal(border), QPointF(fr.x + fr.w / 2, fr.y))
 bd_editor.QMenu = QMenu
 print('  menu:', captured[0] if captured else None)
-ok('frame popup as in the legacy tool', captured and captured[0] == ['Cut', 'Copy', 'Paste', 'Delete', '-', 'Appearance...', '-',
+ok('frame popup as in the legacy tool', captured and captured[0] == ['Cut', 'Copy', 'Paste', 'Delete', '-', 'Appearance...',
                                                         'Object Properties...'])
 
 # Object Properties dialog: change range and label, apply

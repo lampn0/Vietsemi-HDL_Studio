@@ -30,8 +30,9 @@ inst = next(i for i in bd.instances if i.name == 'pc_bg_controller_array')
 m = QMenu(); w._component_menu(m, inst, QPointF(inst.x, inst.y), False)
 names = [a.text().replace('&', '') or '-' for a in m.actions()]
 print('  component menu:', names)
+# (Change Default View is listed only for a unit with several views: none here, the window has no project)
 ok('component popup in the legacy order', names == [
-    'Open As', 'Change Default View', 'Rotate', 'Flip', '-', 'Cut', 'Copy', 'Paste', 'Delete', '-', 'Connect',
+    'Open As', 'Rotate', 'Flip', '-', 'Cut', 'Copy', 'Paste', 'Delete', '-', 'Connect',
     'Disconnect', 'Autoroute', 'Add Signal Stubs...', 'Add PortIO...', 'Equidistant Ports', 'Port Map Frame', '-',
     'Shape', 'Appearance...', 'Show Text', 'Port Visibility...', '-', 'Generics/Parameters', 'Re-level', 'Update',
     'Object Properties...'])
@@ -52,7 +53,8 @@ def drive():
         'Components', 'Component Parameters', 'Component Text Visibility', 'Port Map Frame', 'Attributes',
         'Edit Appearance')])
     icons = sum(1 for i in range(d.tree.topLevelItemCount()) if not d.tree.topLevelItem(i).icon(0).isNull())
-    ok(f'category tree has icons ({icons})', icons >= 13)
+    # as in the legacy dialog, User Declarations and User Properties have no icon
+    ok(f'category tree has icons ({icons})', icons >= 12)
     d.text_page.type.setChecked(True)
     d.attrs.setPlainText('// synopsys dont_touch pc_bg_controller_array')
     d.pm_enable.setChecked(True)
@@ -74,7 +76,7 @@ ok('diagram marked modified', w.dirty)
 pio = next(p for p in w.bd.port_ios if p.mode == 'input')
 m = QMenu(); w._port_menu(m, w.scene.items_by_id[pio.id], QPointF(pio.x, pio.y), False)
 names = [a.text().replace('&', '') or '-' for a in m.actions()]
-ok(f'PortIO popup: {names}', names == ['Change Mode', 'Rotate Port', 'PortIO Text Visibility...', 'Hide Text', '-', 'Cut',
+ok(f'PortIO popup: {names}', names == ['Change Mode', 'Rotate Port', '-', 'PortIO Text Visibility...', 'Show Text', '-', 'Cut',
                                       'Copy', 'Paste', 'Delete', '-', 'Connect', 'Disconnect', '-', 'Appearance...', '-',
                                       'Object Properties...'])
 def drive2():

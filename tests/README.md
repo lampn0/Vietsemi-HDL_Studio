@@ -73,6 +73,7 @@ Lock files a test leaves (some tests simulate a crash) stay in its temporary cop
 | `gui_bd_connect.py` | Ports follow components, connection by dragging, popup menus |
 | `gui_bd_net_ops.py` | Moving components and nets, Alt+drag of a segment, in-place rename |
 | `gui_bd_pin_drag.py`, `gui_bd_pin_move.py`, `gui_bd_pin_net_drag.py` | Moving component ports and their nets |
+| `gui_bd_ports_resize.py` | Block Diagram Tools buttons, Ctrl+click on component ports, the port popup menu, port names (click / double-click), resizing a component by its handles |
 | `gui_bd_grid.py`, `gui_bd_handles.py` | Grid snapping, handle sizes |
 | `gui_bd_frames.py`, `gui_bd_frame_props.py` | Generate frames |
 | `gui_bd_component_props.py`, `gui_bd_params.py` | Component popup menus, Object Properties, parameters |

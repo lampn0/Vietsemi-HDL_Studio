@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from version import APP_NAME
 from .branding import install_app_icon, show_about
+import math
 import os
 import re
 
@@ -182,8 +183,9 @@ class _Movable(QGraphicsItem):
 
 
 class InstanceItem(_Movable):
-    """Component instance. A click on one of its ports selects that port; dragging the
-    port slides it along the edge of the component, and its net follows."""
+    """Component instance. A click on one of its ports selects that port (Ctrl+click adds one);
+    dragging the port slides it along the edge of the component, and its net follows. A selected
+    component has eight handles: dragging one resizes the body."""
     kind = 'inst'
 
     def __init__(self, scene, obj):
@@ -191,6 +193,106 @@ class InstanceItem(_Movable):
         super().__init__(scene, obj)
         self._pin_drag = None       # (pin, press position, original x, y) while moving a port
         self._text_drag = None      # (press position, original text position) while moving the name text
+        self._resize = None         # (handle, body at press, press position) while resizing
+        self._outline: QRectF | None = None     # the new body (scene) shown while resizing
+        self._own_press = False     # the press selected a port or port name: its release must not select the body
+        self.setAcceptHoverEvents(True)
+
+    def _handles(self) -> dict[str, QPointF]:
+        """The eight resize handles (item coordinates), by name: tl t tr r br b bl l."""
+        w, h = self.obj.w, self.obj.h
+        return {'tl': QPointF(0, 0), 't': QPointF(w / 2, 0), 'tr': QPointF(w, 0), 'r': QPointF(w, h / 2),
+                'br': QPointF(w, h), 'b': QPointF(w / 2, h), 'bl': QPointF(0, h), 'l': QPointF(0, h / 2)}
+
+    def _handle_at(self, pos: QPointF) -> str | None:
+        """The resize handle under item position `pos` (only on a selected component), or None."""
+        if not self.isSelected() or self.scene() is None:
+            return None
+        tol = (HANDLE_PX / 2 + 2) * _scene_px(self.scene())
+        return next((k for k, c in self._handles().items()
+                     if abs(c.x() - pos.x()) <= tol and abs(c.y() - pos.y()) <= tol), None)
+
+    def hoverMoveEvent(self, e):
+        """The resize cursor over a handle of the selected component."""
+        sc = self.bd_scene
+        k = self._handle_at(e.pos()) if sc.mode == 'select' and not sc.readonly else None
+        cursors = {'tl': Qt.SizeFDiagCursor, 'br': Qt.SizeFDiagCursor, 'tr': Qt.SizeBDiagCursor,
+                   'bl': Qt.SizeBDiagCursor, 't': Qt.SizeVerCursor, 'b': Qt.SizeVerCursor,
+                   'l': Qt.SizeHorCursor, 'r': Qt.SizeHorCursor}
+        if k:
+            self.setCursor(cursors[k])
+        else:
+            self.unsetCursor()
+        super().hoverMoveEvent(e)
+
+    def _resized(self, k: str, r0: QRectF, dx: float, dy: float) -> QRectF:
+        """The body after handle `k` was dragged by (dx, dy): edges on the grid, never past the ports
+        along them (each port stays on its edge) nor smaller than two grid squares."""
+        o = self.obj
+        ys = [p.y for p in o.pins if p.side in ('left', 'right')]
+        xs = [p.x for p in o.pins if p.side in ('top', 'bottom')]
+        half = GRID / 2
+        left, top, right, bottom = r0.left(), r0.top(), r0.right(), r0.bottom()
+        if 'l' in k:
+            lim = min([right - 2 * GRID] + [x - half for x in xs])
+            left = min(_snap(left + dx), max(left, math.floor(lim / GRID) * GRID))
+        if 'r' in k:
+            lim = max([left + 2 * GRID] + [x + half for x in xs])
+            right = max(_snap(right + dx), min(right, math.ceil(lim / GRID) * GRID))
+        if k.startswith('t'):
+            lim = min([bottom - 2 * GRID] + [y - half for y in ys])
+            top = min(_snap(top + dy), max(top, math.floor(lim / GRID) * GRID))
+        if k.startswith('b'):
+            lim = max([top + 2 * GRID] + [y + half for y in ys])
+            bottom = max(_snap(bottom + dy), min(bottom, math.ceil(lim / GRID) * GRID))
+        return QRectF(QPointF(left, top), QPointF(right, bottom))
+
+    def _apply_resize(self, r: QRectF):
+        """Give the body rectangle `r` (scene): the ports on a moved edge go with it, keeping their
+        place along it and their distance outside it; their nets are re-routed."""
+        o, sc = self.obj, self.bd_scene
+        r0 = QRectF(o.x, o.y, o.w, o.h)
+        moves = []
+        for pin in o.pins:
+            x, y = pin.x, pin.y
+            if pin.side == 'left':
+                x += r.left() - r0.left()
+            elif pin.side == 'right':
+                x += r.right() - r0.right()
+            elif pin.side == 'top':
+                y += r.top() - r0.top()
+            else:
+                y += r.bottom() - r0.bottom()
+            moves.append((pin, x, y))
+        self.prepareGeometryChange()
+        o.w, o.h = r.width(), r.height()
+        sc.following = True                 # the body moves alone: the ports are placed below
+        try:
+            self.setPos(r.left(), r.top())
+        finally:
+            sc.following = False
+        o.x, o.y = r.left(), r.top()
+        for pin, x, y in moves:
+            dx, dy = x - pin.x, y - pin.y
+            if not dx and not dy:
+                continue
+            pin.x, pin.y = x, y
+            for w, which in list(sc._attached(f'pin:{o.id}:{pin.name}')):
+                pts = w.points
+                i, j = (0, 1) if which == 'start' else (len(pts) - 1, len(pts) - 2)
+                if len(pts) >= 2:
+                    a, b = pts[i], pts[j]
+                    # the net leaves the port straight along the move and the end does not reach the
+                    # next corner: it only gets longer / shorter, as in the legacy tool
+                    along_x = dy == 0 and abs(a[1] - b[1]) < 0.01 and (b[0] - a[0] - dx) * (b[0] - a[0]) > 0
+                    along_y = dx == 0 and abs(a[0] - b[0]) < 0.01 and (b[1] - a[1] - dy) * (b[1] - a[1]) > 0
+                    if along_x or along_y:
+                        pts[i] = [a[0] + dx, a[1] + dy]
+                    else:
+                        sc._route_from_pin(w, which, o, pin)
+                if w.id in sc.wire_items:
+                    sc.wire_items[w.id].refresh()
+        self.update()
 
     def name_lines(self) -> list[tuple[str, str, QRectF]]:
         """Visible name lines ('library', 'unit', 'instance') and their boxes in item coordinates.
@@ -220,6 +322,27 @@ class InstanceItem(_Movable):
             r = r.united(box)
         return r
 
+    def pin_label_rect(self, pin: BdPin) -> QRectF:
+        """Box of the name of component port `pin` (item coordinates), where paint() writes it."""
+        o, fm = self.obj, QFontMetricsF(MONO)
+        text = port_label(pin.name, 'wire', False, pin.bounds, '', o)
+        tw, asc, desc = fm.horizontalAdvance(text), fm.ascent(), fm.descent()
+        lx, ly, t = pin.x - o.x, pin.y - o.y, PIN_HALF
+        gap = 10 if pin.clock else 0
+        if pin.side in ('left', 'right'):
+            base = ly + 300 / 75
+            x = lx + t + GRID + gap if pin.side == 'left' else lx - t - GRID - gap - tw
+            return QRectF(x, base - asc, tw, asc + desc)
+        # top / bottom ports: the name reads upward, its baseline at lx + 3
+        y = ly + 7 if pin.side == 'top' else ly - 7 - tw
+        return QRectF(lx + 3 - asc, y, asc + desc, tw)
+
+    def pin_label_at(self, scene_pos: QPointF) -> BdPin | None:
+        """The port whose name is under a scene position, or None."""
+        pos = self.mapFromScene(scene_pos)
+        return next((pin for pin in self.obj.pins
+                     if self.pin_label_rect(pin).adjusted(-1, -1, 1, 1).contains(pos)), None)
+
     def name_at(self, scene_pos: QPointF) -> str:
         """Which name line is under a scene position ('' for none)."""
         pos = self.mapFromScene(scene_pos)
@@ -228,7 +351,10 @@ class InstanceItem(_Movable):
     def boundingRect(self):
         """The body, the port names around it, the parameter lines below it and the name text."""
         extra = len(self.obj.params) * 10 + 4 if self.obj.show_params else 0
-        return QRectF(-90, -6, self.obj.w + 180, self.obj.h + 12 + extra).united(self.name_rect().adjusted(-2, -2, 2, 2))
+        r = QRectF(-90, -6, self.obj.w + 180, self.obj.h + 12 + extra).united(self.name_rect().adjusted(-2, -2, 2, 2))
+        if self._outline is not None:
+            r = r.united(self._outline.translated(-self.obj.x, -self.obj.y).adjusted(-2, -2, 2, 2))
+        return r
 
     def shape(self):
         """Clickable area: the body, the name text and a grab square around each port.
@@ -241,6 +367,10 @@ class InstanceItem(_Movable):
         p.addRect(self.name_rect())             # the name text can be dragged outside the body
         for pin in self.obj.pins:               # the ports stick out of the body: make them clickable
             p.addRect(QRectF(pin.x - self.obj.x - PIN_GRAB, pin.y - self.obj.y - PIN_GRAB, 2 * PIN_GRAB, 2 * PIN_GRAB))
+        if self.isSelected() and self.scene() is not None:   # the resize handles reach outside the body
+            t = (HANDLE_PX / 2 + 2) * _scene_px(self.scene())
+            for c in self._handles().values():
+                p.addRect(QRectF(c.x() - t, c.y() - t, 2 * t, 2 * t))
         return p
 
     def pin_at(self, pos: QPointF) -> BdPin | None:
@@ -274,8 +404,26 @@ class InstanceItem(_Movable):
         move the component).
         """
         sc = self.bd_scene
+        k = self._handle_at(e.pos()) \
+            if e.button() == Qt.LeftButton and sc.mode == 'select' and not sc.readonly else None
+        if k is not None:
+            # a handle of the selected component: resize it (an outline follows the mouse, the body
+            # changes on release, as in the legacy tool)
+            self._resize = (k, QRectF(self.obj.x, self.obj.y, self.obj.w, self.obj.h), e.scenePos())
+            e.accept()
+            return
         pin = self.pin_at(e.scenePos()) if e.button() == Qt.LeftButton and sc.mode == 'select' else None
         kind = self.name_at(e.scenePos()) if pin is None and e.button() == Qt.LeftButton and sc.mode == 'select' else ''
+        label = self.pin_label_at(e.scenePos()) \
+            if pin is None and not kind and e.button() == Qt.LeftButton and sc.mode == 'select' else None
+        if label is not None:
+            # A press on a port name selects that name on its own (red box), as the legacy tool does;
+            # the component stays unselected and does not move.
+            sc.clearSelection()
+            sc.select_text(self, 'pin:' + label.name)
+            self._own_press = True
+            e.accept()
+            return
         if kind:
             # A press on a name line (library / component / instance) selects that line only,
             # like the legacy tool: the body stays unselected and a drag moves the name text, not the component.
@@ -296,6 +444,12 @@ class InstanceItem(_Movable):
             return
         if pin is None:
             return super().mousePressEvent(e)
+        if e.modifiers() & Qt.ControlModifier:
+            # Ctrl+click: add the port to the selection (or take it out), as the legacy tool does
+            sc.select_pin(self, pin, toggle=True)
+            self._own_press = True
+            e.accept()
+            return
         sc.clearSelection()
         sc.select_pin(self, pin)
         if not sc.readonly:
@@ -306,6 +460,13 @@ class InstanceItem(_Movable):
         """Move the name text, or slide the dragged port to the nearest edge point (Shift: only
         horizontally or vertically).
         """
+        if self._resize is not None:
+            k, r0, p0 = self._resize
+            d = e.scenePos() - p0
+            self.prepareGeometryChange()
+            self._outline = self._resized(k, r0, d.x(), d.y())
+            self.update()
+            return
         if self._text_drag is not None:
             p0, (x0, y0) = self._text_drag
             d = e.scenePos() - p0
@@ -322,7 +483,21 @@ class InstanceItem(_Movable):
         self.bd_scene.move_pin(self, pin, *self.pin_target(pin, x0, y0, side0, d.x(), d.y()))
 
     def mouseReleaseEvent(self, e):
-        """End of a name or port drag: record the change when something moved."""
+        """End of a resize, name or port drag: record the change when something moved."""
+        if self._own_press:
+            self._own_press = False
+            e.accept()
+            return
+        if self._resize is not None:
+            r0, r = self._resize[1], self._outline
+            self._resize = None
+            self.prepareGeometryChange()
+            self._outline = None
+            if r is not None and r != r0:
+                self._apply_resize(r)
+                self.bd_scene.changed_model.emit()
+            self.update()
+            return
         if self._text_drag is not None:
             moved = e.scenePos() != self._text_drag[0]
             self._text_drag = None
@@ -349,12 +524,17 @@ class InstanceItem(_Movable):
         p.setPen(_pen(o.line_color, 1.5 * o.line_width, o.line_style))
         p.drawRect(QRectF(0, 0, o.w, o.h))
         if self.isSelected():
-            # as the legacy tool: a selected component keeps its outline and gets corner handles
+            # as the legacy tool: a selected component keeps its outline and gets eight resize handles
             p.save()
             p.setPen(Qt.NoPen); p.setBrush(Qt.black)
             hr = HANDLE_PX * _px(p) / 2
-            for c in (QPointF(0, 0), QPointF(o.w, 0), QPointF(0, o.h), QPointF(o.w, o.h)):
+            for c in self._handles().values():
                 p.drawRect(QRectF(c.x() - hr, c.y() - hr, 2 * hr, 2 * hr))
+            p.restore()
+        if self._outline is not None:           # the new body while a handle is dragged
+            p.save()
+            p.setPen(QPen(Qt.black, 0)); p.setBrush(Qt.NoBrush)
+            p.drawRect(self._outline.translated(-o.x, -o.y))
             p.restore()
         p.setFont(BOLD)
         p.setPen(Qt.black)
@@ -364,6 +544,16 @@ class InstanceItem(_Movable):
         if sel is not None and sel[0] == o.id:
             # The selected name line: red box with a small handle at each corner, as in the legacy tool.
             box = next((r for kind, _, r in self.name_lines() if kind == sel[1]), None)
+            sel_pin = next((q for q in o.pins if 'pin:' + q.name == sel[1]), None)
+            if sel_pin is not None:
+                # a port name: its box, and a red dashed line from the port to it (legacy tool)
+                box = self.pin_label_rect(sel_pin)
+                pen = QPen(QColor(220, 0, 0), 0, Qt.DashLine)
+                p.setPen(pen)
+                end = QPointF(box.left(), box.center().y()) if sel_pin.side == 'left' else \
+                    QPointF(box.right(), box.center().y()) if sel_pin.side == 'right' else \
+                    QPointF(box.center().x(), box.top() if sel_pin.side == 'top' else box.bottom())
+                p.drawLine(QPointF(sel_pin.x - o.x, sel_pin.y - o.y), end)
             if box is not None:
                 px = _px(p)                     # one screen pixel in item units (handles keep their size)
                 p.setPen(QPen(QColor(220, 0, 0), 0)); p.setBrush(Qt.NoBrush)
@@ -426,9 +616,8 @@ class InstanceItem(_Movable):
                 p.rotate(-90)
                 p.drawText(QPointF(0, 0), text)
                 p.restore()
-        sel = self.bd_scene.selected_pin
-        if sel is not None and sel[0] == o.id:
-            pin = next((q for q in o.pins if q.name == sel[1]), None)
+        for iid, name in self.bd_scene.selected_pins:
+            pin = next((q for q in o.pins if q.name == name), None) if iid == o.id else None
             if pin is not None:
                 px = _px(p)
                 p.setPen(QPen(Qt.black, 0)); p.setBrush(Qt.white)
@@ -1559,7 +1748,8 @@ class BdScene(QGraphicsScene):
         self.highlight = ''          # net drawn highlighted
         self.following = False       # True while objects are carried along by a move
         self.group: set = set()      # objects moved together with a frame
-        self.selected_pin: tuple[str, str] | None = None   # (instance id, port) selected on a component
+        # (instance id, port) of the component ports selected on their own (Ctrl+click adds / removes one)
+        self.selected_pins: list[tuple[str, str]] = []
         # (instance id, 'library' | 'unit' | 'instance'): one name line of a component, selected on its own
         self.selected_text: tuple[str, str] | None = None
         self.selected_label: str | None = None      # wire id whose name is selected on its own
@@ -1744,13 +1934,37 @@ class BdScene(QGraphicsScene):
             if iid in self.items_by_id:
                 self.items_by_id[iid].update()
 
-    def select_pin(self, item: 'InstanceItem | None', pin: BdPin | None):
-        """Select one component port on its own (or none) and repaint the components concerned."""
-        old = self.selected_pin
-        self.selected_pin = (item.obj.id, pin.name) if item is not None and pin is not None else None
-        for iid in {old[0] if old else None, self.selected_pin[0] if self.selected_pin else None} - {None}:
+    @property
+    def selected_pin(self) -> tuple[str, str] | None:
+        """The component port selected last (instance id, port), or None."""
+        return self.selected_pins[-1] if self.selected_pins else None
+
+    def select_pin(self, item: 'InstanceItem | None', pin: BdPin | None, toggle: bool = False):
+        """Select one component port on its own (or none) and repaint the components concerned. With
+        `toggle` (Ctrl+click, as in the legacy tool) the port is added to the ports already selected,
+        or taken out of them when it is one of them."""
+        old = list(self.selected_pins)
+        key = (item.obj.id, pin.name) if item is not None and pin is not None else None
+        if toggle and key is not None:
+            if key in self.selected_pins:
+                self.selected_pins.remove(key)
+            else:
+                self.selected_pins.append(key)
+        else:
+            self.selected_pins = [key] if key is not None else []
+        for iid in {k[0] for k in old + self.selected_pins}:
             if iid in self.items_by_id:
                 self.items_by_id[iid].update()
+
+    def pins_selected(self) -> list[tuple[BdInstance, BdPin]]:
+        """The selected component ports, as (instance, port)."""
+        out = []
+        for iid, name in self.selected_pins:
+            it = self.items_by_id.get(iid)
+            pin = next((q for q in it.obj.pins if q.name == name), None) if it is not None else None
+            if pin is not None:
+                out.append((it.obj, pin))
+        return out
 
     def move_pin(self, item: 'InstanceItem', pin: BdPin, x: float, y: float, side: str | None = None,
                  carry: bool = False):
@@ -1973,10 +2187,6 @@ class BdScene(QGraphicsScene):
         """Switch tool ('select' or an add mode): cancel a half-drawn net and the add preview, set the
         drag mode and cursor of the views.
         """
-        page = self.tabs.currentWidget()
-        if mode == 'select' and hasattr(getattr(page, 'table', None), 'unselect'):
-            page.table.unselect()           # Esc on a table page: no cell selected, the page stays
-            return
         self.mode = mode
         self._cancel_wire()
         self._clear_ghost()
@@ -1998,8 +2208,8 @@ class BdScene(QGraphicsScene):
         net tools the first click starts the net (on an object or in open space), clicks in open
         space add corners and a click on an object ends and connects the net.
         """
-        if self.selected_pin is not None and e.button() == Qt.LeftButton:
-            self.select_pin(None, None)         # a port click selects it again below
+        if self.selected_pins and e.button() == Qt.LeftButton and not e.modifiers() & Qt.ControlModifier:
+            self.select_pin(None, None)         # a port click selects it again below (Ctrl+click adds one)
         if self.selected_text is not None and e.button() == Qt.LeftButton:
             self.select_text(None)              # a click on a name line selects it again below
         if self.selected_label is not None and e.button() == Qt.LeftButton:
@@ -2043,7 +2253,15 @@ class BdScene(QGraphicsScene):
             if isinstance(it, (_Movable, WireItem)):
                 item = it
                 break
-        if item is not None and not item.isSelected():
+        pin = item.pin_at(e.scenePos()) if isinstance(item, InstanceItem) else None
+        if pin is not None:
+            # on a component port: that port is selected (unless it is one of the ports already
+            # selected) and the port popup menu is shown, as in the legacy tool
+            if (item.obj.id, pin.name) not in self.selected_pins:
+                self.clearSelection()
+                self.select_pin(item, pin)
+        elif item is not None and not item.isSelected():
+            self.select_pin(None, None)
             self.clearSelection()
             item.setSelected(True)
         self.context_requested.emit(item, e.screenPos(), e.scenePos())
@@ -2894,6 +3112,10 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         """Select/Panning tools and the Add commands. Add commands repeat until
         Esc or the right button (Main Settings > Toolbar Buttons: Remain active); Ctrl while
         choosing one toggles that for the command."""
+        page = self.tabs.currentWidget()
+        if mode == 'select' and hasattr(getattr(page, 'table', None), 'unselect'):
+            page.table.unselect()           # Esc on a table page: no cell selected, the page stays
+            return
         from prefs import Prefs
         ctrl = bool(QApplication.keyboardModifiers() & Qt.ControlModifier)
         self._once = mode not in ('select', 'select_shape', 'pan') and \
@@ -3497,7 +3719,9 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         """
         m = QMenu(self)
         ro = self.scene.readonly
-        if isinstance(item, InstanceItem):
+        if isinstance(item, InstanceItem) and item.pin_at(scene_pos) is not None:
+            self._pin_menu(m, item.obj, ro)
+        elif isinstance(item, InstanceItem):
             self._component_menu(m, item.obj, scene_pos, ro)
         elif isinstance(item, WireItem):
             self._net_menu(m, item, scene_pos, ro)
@@ -3975,6 +4199,29 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         a = m.addAction('&Object Properties...', lambda: self.component_properties(inst, 'component'))
         a.setShortcut(QKeySequence('Alt+Return')); a.setShortcutVisibleInContextMenu(True)
 
+    def _pin_menu(self, m: QMenu, inst: BdInstance, ro: bool):
+        """The popup menu of the selected component ports, entries and order as in the legacy tool. The
+        commands act on the selected ports only, without asking for the kinds of ports."""
+        pins = self.scene.pins_selected()
+        names = lambda i: {p.name for x, p in pins if x is i}
+        insts = list({id(i): i for i, _ in pins}.values()) or [inst]
+
+        def each(fn):
+            """Run fn(instance, names of its selected ports) for each component concerned."""
+            for i in insts:
+                fn(i, names(i))
+        self._menu_item(m, 'Disconnect', lambda: each(lambda i, n: self.disconnect(i, n)), 'Shift+Alt+C', not ro)
+        self._menu_item(m, '&Equidistant Ports', lambda: each(lambda i, n: self.equidistant(i)), enabled=not ro)
+        self._menu_item(m, 'Add Signal Stu&bs...', lambda: each(lambda i, n: self.add_signal_stubs(i, pins=n)),
+                        'Ctrl+F10', not ro)
+        self._menu_item(m, 'Add Port&IO...', lambda: each(lambda i, n: self.add_port_ios(i, pins=n)),
+                        'Shift+F10', not ro)
+        self._menu_item(m, 'Appea&rance...', lambda: self._small_dialog('appearance', inst))
+        m.addSeparator()
+        self._menu_item(m, 'Show Te&xt', lambda: each(lambda i, n: self._show_component_text(i)), enabled=not ro)
+        a = m.addAction('&Object Properties...', lambda: self.component_properties(inst, 'component'))
+        a.setShortcut(QKeySequence('Alt+Return')); a.setShortcutVisibleInContextMenu(True)
+
     def _small_dialog(self, kind: str, obj):
         """Appearance... (component, PortIO) or Port Visibility... (component): the legacy one-page dialog;
         OK / Apply redraw the diagram and record the change."""
@@ -4374,11 +4621,14 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         attached = {r for w in self.bd.wires for r in (w.start, w.end)}
         return [p for p in inst.pins if f'pin:{inst.id}:{p.name}' not in attached]
 
-    def add_signal_stubs(self, inst: BdInstance, modes: set | None = None):
+    def add_signal_stubs(self, inst: BdInstance, modes: set | None = None, pins: set | None = None):
         """Add Signal Stubs: a short named net (the port's net name or its own name) on every free port
-        (of the kinds in `modes`: input / output / inout; all when None)."""
+        (of the kinds in `modes`: input / output / inout; all when None; only the ports named in `pins`
+        when given)."""
         n = 0
         for pin in self._free_pins(inst):
+            if pins is not None and pin.name not in pins:
+                continue
             if modes is not None and (pin.mode if pin.mode in ('input', 'output') else 'inout') not in modes:
                 continue
             net = pin.net or pin.name
@@ -4416,11 +4666,13 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         if n:
             self._reload_scene()
 
-    def add_port_ios(self, inst: BdInstance, modes: set | None = None):
+    def add_port_ios(self, inst: BdInstance, modes: set | None = None, pins: set | None = None):
         """Add PortIO: a module port joined by a net to every free port of the instance (of the kinds in
-        `modes`: input / output / inout; all when None)."""
+        `modes`: input / output / inout; all when None; only the ports named in `pins` when given)."""
         n = 0
         for pin in self._free_pins(inst):
+            if pins is not None and pin.name not in pins:
+                continue
             if modes is not None and (pin.mode if pin.mode in ('input', 'output') else 'inout') not in modes:
                 continue
             net = pin.net or pin.name
@@ -4438,15 +4690,17 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         self.statusBar().showMessage(f'Added {n} port(s)', 4000)
         self._reload_scene()
 
-    def disconnect(self, inst: BdInstance):
-        """Disconnect (component popup): as the legacy tool, every net on the component's ports stays where
-        it is, its end is only detached from the port (it shows the red unconnected mark)."""
-        refs = {f'pin:{inst.id}:{p.name}' for p in inst.pins}
+    def disconnect(self, inst: BdInstance, pins: set | None = None):
+        """Disconnect (component / port popup): as the legacy tool, every net on the component's ports (only
+        the ports named in `pins` when given) stays where it is, its end is only detached from the port (it
+        shows the red unconnected mark)."""
+        mine = [p for p in inst.pins if pins is None or p.name in pins]
+        refs = {f'pin:{inst.id}:{p.name}' for p in mine}
         for w in self.bd.wires:
             for which in ('start', 'end'):
                 if getattr(w, which) in refs:
                     setattr(w, which, '')
-        for p in inst.pins:
+        for p in mine:
             p.net = ''
         self._reload_scene()
 
@@ -5871,12 +6125,23 @@ class BdEditorWindow(QMainWindow, PanelCommands):
         rest goes to the scene.
         """
         item = self.canvas.itemAt(e.position().toPoint())
+        at = self.canvas.mapToScene(e.position().toPoint())
+        if self.scene.mode == 'select':
+            # a port name, even under a net drawn over it: it comes from the component's interface,
+            # so as in the legacy tool it stays selected and cannot be edited here
+            for it in self.canvas.items(e.position().toPoint()):
+                label = it.pin_label_at(at) if isinstance(it, InstanceItem) else None
+                if label is not None and not it.name_at(at):
+                    self.scene.clearSelection()
+                    self.scene.select_text(it, 'pin:' + label.name)
+                    self.statusBar().showMessage('Cannot edit read-only text', 5000)
+                    return
         if isinstance(item, EmbeddedItem) and self.scene.mode == 'select' and not self.scene.readonly:
             self.embedded_double_click(item, self.canvas.mapToScene(e.position().toPoint()))
             return
         if isinstance(item, InstanceItem) and self.scene.mode == 'select':
             # On a name line: edit that line in place. Elsewhere on the component: open it.
-            kind = item.name_at(self.canvas.mapToScene(e.position().toPoint()))
+            kind = item.name_at(at)
             if kind and not self.scene.readonly:
                 self.edit_component_text_inline(item, kind)
             else:
