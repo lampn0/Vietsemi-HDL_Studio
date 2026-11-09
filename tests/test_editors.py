@@ -585,6 +585,38 @@ class TestTables(_EditorCase):
         self.t.write(self.st.row_of(self.sig('clk')), self.st.column_of('name'), 'rst')   # a name taken
         self.assertIsNotNone(self.sig('clk'))
 
+    def test_rows_and_columns_selected_copied_and_pasted(self):
+        """As the legacy tool: a row number / column letter selects the whole row / column (drawn
+        black); Ctrl+C copies whole rows; Ctrl+V on the empty last row appends them, on another row
+        inserts them below it, names made unique (clk -> clk1)."""
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QApplication
+        w, st, t = self.w, self.st, self.t
+        w.tabs.setCurrentWidget(st); w.show(); QApplication.processEvents()
+        r = st.row_of(self.sig('clk'))
+        vh = t.frozen.verticalHeader()
+        QTest.mouseClick(vh.viewport(), Qt.LeftButton, Qt.NoModifier, QPoint(5, vh.sectionViewportPosition(r) + 5))
+        self.assertEqual(t.full_rows(), [r])
+        self.assertTrue(t.is_marked(t.model().index(r, st.column_of('type'))))
+        self.assertIn(r, t.marked_rows())
+        t.setFocus()
+        QTest.keyClick(t, Qt.Key_C, Qt.ControlModifier)
+        self.assertEqual(QApplication.clipboard().text().split('\t')[1], 'clk')
+        n = len(self.w.view.signals)
+        t.setCurrentCell(t.rowCount() - 1, st.column_of('name'))
+        QTest.keyClick(t, Qt.Key_V, Qt.ControlModifier)
+        new = st.display_rows()[-1]
+        self.assertEqual((len(self.w.view.signals), new.name, new.mode, new.type), (n + 1, 'clk1', 'input', 'wire'))
+        self.assertEqual(t.full_rows(), [t.rowCount() - 2])             # the new row is selected
+        t.setCurrentCell(r, st.column_of('name'))
+        st.paste()
+        self.assertEqual(st.display_rows()[r + 1].name, 'clk2')        # below the current row
+        hh = t.horizontalHeader()
+        c = st.column_of('mode')
+        QTest.mouseClick(hh.viewport(), Qt.LeftButton, Qt.NoModifier, QPoint(hh.sectionViewportPosition(c) + 5, 5))
+        self.assertEqual(t.full_columns(), {c})
+
     def test_category_sets_the_expression(self):
         n = len(self.w.view.signals)
         self.t.write(n, self.st.column_of('name'), 'en')

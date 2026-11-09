@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import copy
 
-from PySide6.QtCore import QEvent, QItemSelectionModel, QModelIndex, QObject, QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QItemSelection, QItemSelectionModel, QModelIndex, QObject, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QImage, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtWidgets import (QAbstractItemDelegate, QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QFileDialog, QHeaderView, QLineEdit, QMenu, QStyledItemDelegate,
@@ -182,6 +182,7 @@ class _Header(QHeaderView):
         t = self.sheet
         p.save()
         cur = t.currentColumn() == index
+        marked = index in t.marked_columns()
         lh = t.height_of('#letters')
         fh = t.filter_height()
         top = QRect(rect.left(), rect.top(), rect.width(), lh)
@@ -189,8 +190,11 @@ class _Header(QHeaderView):
         attr = t.columns[index]
         fmt = t.owner.title_format(attr)
         p.fillRect(rect, QColor(fmt.get('bg', '#c0c0c0')))
-        if cur:
+        if cur or marked:
             p.fillRect(top, CURRENT_LETTER)
+        if index in t.full_columns():
+            p.fillRect(bottom, Qt.black)        # a column selected by its letter: its name cell too
+        elif cur:
             p.fillRect(bottom, CURRENT_NAME)
         p.setPen(QPen(GRID, 1))
         p.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
@@ -201,7 +205,7 @@ class _Header(QHeaderView):
         f = _font(fmt)
         f.setItalic(f.italic() or index in t.filters)          # a filtered column
         p.setFont(f)
-        p.setPen(QColor(fmt.get('fg', '#000000')))
+        p.setPen(Qt.white if index in t.full_columns() else QColor(fmt.get('fg', '#000000')))
         p.drawText(bottom.adjusted(3, 0, -3, 0), _ALIGN.get(fmt.get('align', 'center')) | Qt.AlignVCenter,
                    HEADERS.get(attr, attr))
         if cur:
@@ -277,7 +281,8 @@ class _RowHeader(QHeaderView):
     def paintSection(self, p: QPainter, rect: QRect, index: int):
         p.save()
         t = self.sheet
-        p.fillRect(rect, TINT if t.currentRow() == index else QColor(t.owner.va('header').get('bg', '#c0c0c0')))
+        p.fillRect(rect, CURRENT_LETTER if index in t.marked_rows() else
+                   TINT if t.currentRow() == index else QColor(t.owner.va('header').get('bg', '#c0c0c0')))
         p.setPen(QPen(GRID, 1))
         p.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
         p.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
@@ -303,16 +308,22 @@ class _Delegate(QStyledItemDelegate):
         fmt = t.cell_format(r, c)
         na = not t.applies(r, c)
         tinted = r == t.currentRow() or c == t.currentColumn()
+        marked = t.is_marked(index)
         p.save()
-        if na:
+        if marked:
+            bg = QColor(Qt.black)               # selected rows / columns / cells: black, as the legacy tool
+        elif na:
             bg = NA_TINT if tinted else NA
         else:
             bg = TINT if tinted and QColor(fmt.get('bg', '#ffffff')) == QColor('#ffffff') else QColor(fmt.get('bg'))
         p.fillRect(rect, bg)
-        if fmt.get('pattern') and fmt['pattern'] != 'solid' and not na:
+        if fmt.get('pattern') and fmt['pattern'] != 'solid' and not na and not marked:
             p.fillRect(rect, QBrush(QColor(90, 90, 90), _PATTERNS.get(fmt['pattern'], Qt.SolidPattern)))
         p.setFont(_font(fmt))
-        p.setPen(QColor(fmt.get('fg', '#000000')))
+        fg = QColor(fmt.get('fg', '#000000'))
+        if marked:                              # the text in the inverse colour
+            fg = QColor(255 - fg.red(), 255 - fg.green(), 255 - fg.blue())
+        p.setPen(fg)
         p.drawText(rect.adjusted(3, 0, -3, 0), _ALIGN.get(fmt.get('align', 'center')) | Qt.AlignVCenter,
                    index.data(Qt.DisplayRole) or '')
         if r == t.currentRow() and c == t.currentColumn() and (t.hasFocus() or t.frozen.hasFocus()):
@@ -411,6 +422,36 @@ class _SheetTable(QTableWidget):
         self.frozen = _FrozenView(self)
         self.horizontalHeader().sectionResized.connect(self._column_resized)
         self.currentCellChanged.connect(lambda *a: self.repaint_all())
+        self.selectionModel().selectionChanged.connect(lambda *a: self.repaint_all())
+
+    # -- selection ----------------------------------------------------------------------------
+    def is_marked(self, index: QModelIndex) -> bool:
+        """Whether a cell is drawn selected (black): it is selected and the selection is more than
+        the one cell a click puts the cursor in."""
+        sm = self.selectionModel()
+        return sm.isSelected(index) and len(sm.selectedIndexes()) > 1
+
+    def marked_rows(self) -> set[int]:
+        """Rows with a cell drawn selected (their numbers are tinted, as in the legacy tool)."""
+        idx = self.selectionModel().selectedIndexes()
+        return {i.row() for i in idx} if len(idx) > 1 else set()
+
+    def marked_columns(self) -> set[int]:
+        """Columns with a cell drawn selected (their letters are tinted)."""
+        idx = self.selectionModel().selectedIndexes()
+        return {i.column() for i in idx} if len(idx) > 1 else set()
+
+    def full_columns(self) -> set[int]:
+        """Columns selected whole (by their letter)."""
+        sm = self.selectionModel()
+        if self.rowCount() < 2:
+            return set()
+        return {c for c in range(self.columnCount()) if sm.isColumnSelected(c, QModelIndex())}
+
+    def full_rows(self) -> list[int]:
+        """Rows selected whole (by their number), in display order."""
+        sm = self.selectionModel()
+        return [r for r in range(self.rowCount()) if sm.isRowSelected(r, QModelIndex())]
 
     # -- layout -------------------------------------------------------------------------------
     @property
@@ -1019,9 +1060,17 @@ class _ListTable(QWidget):
         self.delete()
 
     def paste(self):
-        """Edit > Paste: tab-separated text from the clipboard, from the current cell on."""
+        """Edit > Paste: tab-separated text from the clipboard. Whole rows (copied by their numbers: one
+        value per column) become new rows, as in the legacy tool: below the current row, or at the end
+        from the empty last row, each name made unique (clk -> clk1). Other text goes into the cells
+        from the current cell on."""
         text = QApplication.clipboard().text()
         if self.readonly or not text:
+            return
+        lines = text.rstrip('\n').split('\n')
+        cols = self.table.columns
+        if 'name' in cols and all(len(line.split('\t')) == len(cols) for line in lines):
+            self.paste_rows([dict(zip(cols, line.split('\t'))) for line in lines])
             return
         r0, c0 = max(self.table.currentRow(), 0), max(self.table.currentColumn(), 0)
         for dr, line in enumerate(text.rstrip('\n').split('\n')):
@@ -1029,6 +1078,40 @@ class _ListTable(QWidget):
                 c = c0 + dc
                 if c < len(self.table.columns):
                     self.write(r0 + dr, self.table.columns[c], value.strip())
+
+    def paste_rows(self, values: list[dict]):
+        """New rows from `values` (attr -> text each) below the current row (at the end from the empty
+        last row or with no current row); the new rows are selected."""
+        rows = self.display_rows()
+        r = self.table.currentRow()
+        at = len(rows) if r < 0 or r >= len(rows) else r + 1
+        new = []
+        for v in values:
+            base = v.get('name', '').strip()
+            row = self.new_row(self._copy_name(base) if base else None)
+            for attr, value in v.items():
+                if attr != 'name' and value.strip() and self.applies(row, attr):
+                    self.set_value(row, attr, value.strip())
+            self.rows.append(row)
+            new.append(row)
+        self._set_order(rows[:at] + new + rows[at:])
+        self.table.refresh()
+        m = self.table.model()
+        self.table.setCurrentCell(at, max(self.column_of('name'), 0))
+        self.table.selectionModel().select(
+            QItemSelection(m.index(at, 0), m.index(at + len(new) - 1, m.columnCount() - 1)),
+            QItemSelectionModel.ClearAndSelect)
+        self.changed.emit()
+
+    def _copy_name(self, base: str) -> str:
+        """The name of a pasted row: `base` when it is free, else base1, base2, ... (legacy tool)."""
+        names = {r.name for r in self.rows}
+        if base not in names:
+            return base
+        k = 1
+        while f'{base}{k}' in names:
+            k += 1
+        return f'{base}{k}'
 
     def select_all(self):
         self.table.selectAll()

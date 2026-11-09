@@ -119,6 +119,8 @@ COMMON_KEYS = {
     'edit_text': ['F2'], 'zoom_in': ['Shift+Up', 'Ctrl++'], 'zoom_out': ['Shift+Down', 'Ctrl+-'],
     'view_area': ['Shift+Home'], 'fit': ['Home'], 'select': ['Esc'], 'generate_open': ['Ctrl+G'],
     'generate': ['Shift+G'],
+    # the Signals / Parameters Table pages (their Edit menu); never shown together with the diagram's
+    'table_cut': ['Ctrl+X'], 'table_copy': ['Ctrl+C'], 'table_paste': ['Ctrl+V'], 'table_select_all': ['Ctrl+A'],
 }
 FSM_KEYS = {
     **COMMON_KEYS, 'state': ['F3', 'S'], 'hier_state': ['Shift+F2', 'H'], 'interrupt': ['I'],
