@@ -463,8 +463,7 @@ class LibraryExplorer(QWidget):
         if d[0] in ('root', 'frame'):
             self.dm.open_unit(d[1])
         elif d[0] == 'unit' and d[1] is not None:
-            if item.treeWidget() is self.units:
-                self.dm.open_unit(d[1])
+            self.dm.open_unit(d[1])             # Design Units or Design Hierarchy row
         elif d[0] == 'view':
             self.dm.open_view(d[1], d[2])
         elif d[0] == 'file':
