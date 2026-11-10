@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "D:\\workspace\\Vietsemi-HDL_Studio\\.archify\\hdl-studio\\architecture.json",
+    "sha256": "1140f539589679f12940c0f738df617e0bc41d833d33a04fb027aedef8604c40",
+    "bytes": 9856
+  },
+  "artifact": {
+    "path": "D:\\workspace\\Vietsemi-HDL_Studio\\.archify\\hdl-studio\\architecture.html",
+    "sha256": "8fc04cfaf255e483f2b87034a2906517caae1f747813b47285fba4c8c34a9f92",
+    "bytes": 861304
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "D:\\workspace\\Vietsemi-HDL_Studio\\.archify\\hdl-studio\\architecture.finalize.json",
+    "summaryReceipt": "D:\\workspace\\Vietsemi-HDL_Studio\\.archify\\hdl-studio\\architecture.finalize-summary.json",
+    "browserCheckReceipt": "D:\\workspace\\Vietsemi-HDL_Studio\\.archify\\hdl-studio\\architecture.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-11-09T13:35:50.115Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 4919,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  }
+}

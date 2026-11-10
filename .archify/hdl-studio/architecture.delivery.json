@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "99818a35-bb7a-459b-8a5d-4db94992cd2e",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "D:\\workspace\\Vietsemi-HDL_Studio\\.archify\\hdl-studio\\architecture.json",
+  "output": "D:\\workspace\\Vietsemi-HDL_Studio\\.archify\\hdl-studio\\architecture.html",
+  "specification": {
+    "sha256": "1140f539589679f12940c0f738df617e0bc41d833d33a04fb027aedef8604c40",
+    "bytes": 9856
+  },
+  "artifact": {
+    "sha256": "8fc04cfaf255e483f2b87034a2906517caae1f747813b47285fba4c8c34a9f92",
+    "bytes": 861304
+  }
+}

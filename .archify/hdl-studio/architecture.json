@@ -1,0 +1,488 @@
+{
+ "schema_version": 1,
+ "diagram_type": "architecture",
+ "meta": {
+  "title": "Vietsemi HDL Studio Runtime Architecture",
+  "locale": "en",
+  "output": ".archify/hdl-studio/architecture.html",
+  "quality_profile": "showcase",
+  "repository": {
+   "url": "https://github.com/lampn0/Vietsemi-HDL_Studio.git",
+   "provider": "github",
+   "revision": "2950c603e358d2640873f56c188ffae7c8b9bf3c"
+  }
+ },
+ "components": [
+  {
+   "id": "hds_tool",
+   "type": "external",
+   "label": "HDL Designer",
+   "sublabel": "co-editing tool",
+   "pos": [
+    40,
+    40
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/project/lock.py",
+     "line": 1,
+     "end_line": 2,
+     "label": "legacy EDIT_LOCK format"
+    }
+   ]
+  },
+  {
+   "id": "workspace",
+   "type": "database",
+   "label": "Project workspace",
+   "sublabel": ".hdp · <lib>/hds views · <lib>/hdl · .lck",
+   "tag": "shared with HDS",
+   "pos": [
+    290,
+    40
+   ],
+   "size": [
+    890,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/project/project.py",
+     "line": 229,
+     "end_line": 268,
+     "label": "Library.scan"
+    },
+    {
+     "path": "src/project/lock.py",
+     "line": 100,
+     "end_line": 111,
+     "label": "lock acquire"
+    }
+   ]
+  },
+  {
+   "id": "pyslang",
+   "type": "external",
+   "label": "pyslang",
+   "sublabel": "optional parser",
+   "pos": [
+    40,
+    184
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/hdl/parser.py",
+     "line": 13,
+     "end_line": 18,
+     "label": "optional import"
+    }
+   ]
+  },
+  {
+   "id": "project",
+   "type": "backend",
+   "label": "Project & Libraries",
+   "sublabel": "open .hdp · scan HDL",
+   "pos": [
+    290,
+    184
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/project/project.py",
+     "line": 467,
+     "end_line": 487,
+     "label": "open_project"
+    },
+    {
+     "path": "src/hdl/parser.py",
+     "line": 90,
+     "end_line": 130,
+     "label": "parse_file"
+    }
+   ]
+  },
+  {
+   "id": "hds_io",
+   "type": "backend",
+   "label": "Legacy formats",
+   "sublabel": "formats/ import · export_sm",
+   "pos": [
+    790,
+    184
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/project/generate.py",
+     "line": 26,
+     "end_line": 32,
+     "label": "load_view"
+    },
+    {
+     "path": "src/gui/context.py",
+     "line": 113,
+     "end_line": 131,
+     "label": "_save_sm"
+    }
+   ]
+  },
+  {
+   "id": "user",
+   "type": "external",
+   "label": "HDL Engineer",
+   "sublabel": "desktop user",
+   "pos": [
+    40,
+    328
+   ],
+   "size": [
+    140,
+    64
+   ]
+  },
+  {
+   "id": "dm",
+   "type": "frontend",
+   "label": "Design Manager",
+   "sublabel": "coordinator window",
+   "pos": [
+    290,
+    328
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "bin/hdlstudio.py",
+     "line": 59,
+     "end_line": 80,
+     "label": "launcher + splash"
+    },
+    {
+     "path": "src/gui/design_manager.py",
+     "line": 1471,
+     "end_line": 1495,
+     "label": "load_project"
+    },
+    {
+     "path": "src/gui/design_manager.py",
+     "line": 1842,
+     "end_line": 1893,
+     "label": "open_view"
+    }
+   ]
+  },
+  {
+   "id": "editors",
+   "type": "frontend",
+   "label": "Diagram Editors",
+   "sublabel": "FSM · block diagram · tables",
+   "pos": [
+    540,
+    328
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/gui/main_window.py",
+     "line": 50,
+     "end_line": 50,
+     "label": "FSM editor"
+    },
+    {
+     "path": "src/gui/bd_editor.py",
+     "line": 2816,
+     "end_line": 2816,
+     "label": "BD editor"
+    },
+    {
+     "path": "src/gui/table_page.py",
+     "line": 70,
+     "end_line": 70,
+     "label": "Signals / Parameters pages"
+    }
+   ]
+  },
+  {
+   "id": "ctx",
+   "type": "security",
+   "label": "EditorContext",
+   "sublabel": "lock · save · generate",
+   "tag": "read-only gate",
+   "pos": [
+    790,
+    328
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/gui/context.py",
+     "line": 41,
+     "end_line": 82,
+     "label": "acquire lock"
+    },
+    {
+     "path": "src/gui/context.py",
+     "line": 91,
+     "end_line": 112,
+     "label": "save"
+    },
+    {
+     "path": "src/gui/context.py",
+     "line": 215,
+     "end_line": 235,
+     "label": "generate_with_prompt"
+    }
+   ]
+  },
+  {
+   "id": "codegen",
+   "type": "backend",
+   "label": "HDL Generator",
+   "sublabel": "codegen + overwrite guard",
+   "pos": [
+    1040,
+    328
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/project/generate.py",
+     "line": 95,
+     "end_line": 158,
+     "label": "generate_unit"
+    },
+    {
+     "path": "src/codegen/fsm_codegen.py",
+     "line": 918,
+     "end_line": 918,
+     "label": "FSM codegen"
+    },
+    {
+     "path": "src/codegen/bd_codegen.py",
+     "line": 314,
+     "end_line": 314,
+     "label": "BD codegen"
+    }
+   ]
+  },
+  {
+   "id": "config",
+   "type": "database",
+   "label": "User home",
+   "sublabel": "prefs · session · autosave · logs",
+   "pos": [
+    290,
+    472
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "src/homes.py",
+     "line": 103,
+     "end_line": 112,
+     "label": "user_dir per release"
+    },
+    {
+     "path": "src/session.py",
+     "line": 90,
+     "end_line": 101,
+     "label": "write_autosave"
+    },
+    {
+     "path": "bin/hdlstudio.py",
+     "line": 29,
+     "end_line": 56,
+     "label": "error hook -> errors.log"
+    }
+   ]
+  }
+ ],
+ "boundaries": [
+  {
+   "kind": "security-group",
+   "label": "Shared workspace · .lck edit locks · library type",
+   "wraps": [
+    "workspace"
+   ]
+  },
+  {
+   "kind": "region",
+   "label": "HDL Studio process (src/, PySide6)",
+   "wraps": [
+    "project",
+    "hds_io",
+    "dm",
+    "editors",
+    "ctx",
+    "codegen"
+   ]
+  },
+  {
+   "kind": "region",
+   "label": "Per-user ~/hdl_studio/user/<release>",
+   "wraps": [
+    "config"
+   ]
+  }
+ ],
+ "connections": [
+  {
+   "id": "user-opens",
+   "from": "user",
+   "to": "dm",
+   "label": "open .hdp",
+   "variant": "emphasis"
+  },
+  {
+   "id": "dm-opens-editor",
+   "from": "dm",
+   "to": "editors",
+   "label": "open view",
+   "variant": "emphasis"
+  },
+  {
+   "id": "editor-to-ctx",
+   "from": "editors",
+   "to": "ctx",
+   "label": "save / gen",
+   "variant": "emphasis"
+  },
+  {
+   "id": "ctx-generate",
+   "from": "ctx",
+   "to": "codegen",
+   "label": "generate",
+   "variant": "emphasis"
+  },
+  {
+   "id": "codegen-writes",
+   "from": "codegen",
+   "to": "workspace",
+   "label": "write .v/.sv",
+   "variant": "emphasis"
+  },
+  {
+   "id": "dm-project",
+   "from": "dm",
+   "to": "project",
+   "label": "open_project"
+  },
+  {
+   "id": "project-reads",
+   "from": "project",
+   "to": "workspace",
+   "label": "read + scan"
+  },
+  {
+   "id": "project-parse",
+   "from": "project",
+   "to": "pyslang",
+   "label": "parse HDL",
+   "variant": "dashed"
+  },
+  {
+   "id": "ctx-save-sm",
+   "from": "ctx",
+   "to": "hds_io",
+   "label": "export_sm"
+  },
+  {
+   "id": "hdsio-files",
+   "from": "hds_io",
+   "to": "workspace",
+   "label": ".sm / .bd / .sb"
+  },
+  {
+   "id": "hds-coedits",
+   "from": "hds_tool",
+   "to": "workspace",
+   "label": "co-edits",
+   "variant": "dashed"
+  },
+  {
+   "id": "dm-session",
+   "from": "dm",
+   "to": "config",
+   "label": "session, autosave",
+   "variant": "dashed"
+  }
+ ],
+ "cards": [
+  {
+   "dot": "emerald",
+   "title": "Primary path",
+   "items": [
+    "Engineer opens a .hdp; the Design Manager opens a view in its FSM or block-diagram editor, each with Signals / Parameters table pages",
+    "Generate goes through EditorContext to generate_unit, which writes <lib>/hdl/<unit>.v or .sv atomically",
+    "Layers call only downward: everything outside src/gui runs without Qt"
+   ]
+  },
+  {
+   "dot": "rose",
+   "title": "Trust and safety gates",
+   "items": [
+    "EditorContext.acquire writes <view>.lck (legacy EDIT_LOCK format); a lock held by another user offers read-only or reset",
+    "Protected and downstream libraries, or files without write permission, open read-only",
+    "generate_unit keeps a sha256 per file in .hdlstudio_gen.json and refuses to overwrite a hand-edited file unless the user confirms"
+   ]
+  },
+  {
+   "dot": "cyan",
+   "title": "Loading and saving views",
+   "items": [
+    "load_view uses formats.import_sm / import_bd for legacy files, or FsmView / BlockDiagram .json",
+    "A .sm is written back in place by export_sm; other views save as <view>.<kind>.json",
+    "Optional .bak copy before save (Main Settings > Save)"
+   ]
+  },
+  {
+   "dot": "amber",
+   "title": "External dependencies",
+   "items": [
+    "PySide6 (Qt 6) for every window; pyslang is optional, with a regex fallback scanner",
+    "HDL Designer edits the same .hdp / .sm / .bd files and honours the same .lck locks",
+    "Text files can open in an external editor from Preferences"
+   ]
+  },
+  {
+   "dot": "slate",
+   "title": "Per-user state",
+   "items": [
+    "user_prefs.json, session.json, autosave/ and parse caches live in ~/hdl_studio/user/v<YYYY.MM> ($HDLSTUDIO_HOME); a new release copies the newest older folder",
+    "Uncaught errors go to stderr, logs/errors.log and the Design Manager Log",
+    "Autosave of unsaved editors runs on a timer and is offered for recovery when the view reopens"
+   ]
+  }
+ ]
+}

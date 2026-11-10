@@ -1,0 +1,789 @@
+{
+ "schema_version": 1,
+ "diagram_type": "class",
+ "meta": {
+  "title": "HDL Studio core classes",
+  "locale": "en",
+  "output": ".archify/hdl-studio/classes.html",
+  "quality_profile": "showcase",
+  "repository": {
+   "url": "https://github.com/lampn0/Vietsemi-HDL_Studio.git",
+   "provider": "github",
+   "revision": "2950c603e358d2640873f56c188ffae7c8b9bf3c"
+  }
+ },
+ "layout": {
+  "mode": "grid"
+ },
+ "types": [
+  {
+   "id": "design_manager",
+   "label": "DesignManager",
+   "kind": "class",
+   "sublabel": "Main window: libraries, open editors",
+   "row": 0,
+   "col": 1,
+   "attributes": [
+    {
+     "name": "project",
+     "type": "Project",
+     "visibility": "public"
+    },
+    {
+     "name": "editors",
+     "type": "dict[str, QMainWindow]",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "load_project",
+     "parameters": "path",
+     "visibility": "public"
+    },
+    {
+     "name": "open_view",
+     "parameters": "du, view",
+     "visibility": "public"
+    },
+    {
+     "name": "autosave",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/gui/design_manager.py",
+     "line": 578,
+     "end_line": 590,
+     "label": "class DesignManager"
+    },
+    {
+     "path": "src/gui/design_manager.py",
+     "line": 1842,
+     "end_line": 1893,
+     "label": "open_view"
+    }
+   ]
+  },
+  {
+   "id": "editor_context",
+   "label": "EditorContext",
+   "kind": "class",
+   "sublabel": "Lock, save and generate for one view",
+   "row": 1,
+   "col": 1,
+   "attributes": [
+    {
+     "name": "lib",
+     "type": "Library",
+     "visibility": "public"
+    },
+    {
+     "name": "view",
+     "type": "View",
+     "visibility": "public"
+    },
+    {
+     "name": "readonly",
+     "type": "bool",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "acquire",
+     "parameters": "parent",
+     "returns": "bool",
+     "visibility": "public"
+    },
+    {
+     "name": "save",
+     "parameters": "model, parent",
+     "returns": "bool",
+     "visibility": "public"
+    },
+    {
+     "name": "generate",
+     "parameters": "model, parent",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/gui/context.py",
+     "line": 18,
+     "end_line": 33,
+     "label": "class EditorContext"
+    },
+    {
+     "path": "src/gui/context.py",
+     "line": 41,
+     "end_line": 82,
+     "label": "acquire"
+    }
+   ]
+  },
+  {
+   "id": "project",
+   "label": "Project",
+   "kind": "record",
+   "sublabel": "An open .hdp file",
+   "row": 0,
+   "col": 2,
+   "attributes": [
+    {
+     "name": "path",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "libraries",
+     "type": "list[Library]",
+     "visibility": "public"
+    },
+    {
+     "name": "default_library",
+     "type": "str",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "library",
+     "parameters": "name",
+     "returns": "Library",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/project/project.py",
+     "line": 304,
+     "end_line": 330,
+     "label": "class Project"
+    }
+   ]
+  },
+  {
+   "id": "bd_window",
+   "label": "BdEditorWindow",
+   "kind": "class",
+   "sublabel": "Block diagram editor",
+   "row": 2,
+   "col": 2,
+   "attributes": [
+    {
+     "name": "bd",
+     "type": "BlockDiagram",
+     "visibility": "public"
+    },
+    {
+     "name": "scene",
+     "type": "BdScene",
+     "visibility": "public"
+    },
+    {
+     "name": "table_pages",
+     "type": "TablePages",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "save",
+     "visibility": "public"
+    },
+    {
+     "name": "generate",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/gui/bd_editor.py",
+     "line": 2816,
+     "end_line": 2843,
+     "label": "class BdEditorWindow"
+    },
+    {
+     "path": "src/gui/bd_editor.py",
+     "line": 6324,
+     "end_line": 6334,
+     "label": "save / generate"
+    }
+   ]
+  },
+  {
+   "id": "library",
+   "label": "Library",
+   "kind": "record",
+   "sublabel": "HDL folders and design units",
+   "row": 1,
+   "col": 2,
+   "attributes": [
+    {
+     "name": "name",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "hdl_dirs",
+     "type": "list[str]",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "scan",
+     "parameters": "cache",
+     "visibility": "public"
+    },
+    {
+     "name": "writable",
+     "returns": "bool",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/project/project.py",
+     "line": 134,
+     "end_line": 160,
+     "label": "class Library"
+    },
+    {
+     "path": "src/project/project.py",
+     "line": 229,
+     "end_line": 268,
+     "label": "scan"
+    }
+   ]
+  },
+  {
+   "id": "fsm_window",
+   "label": "MainWindow",
+   "kind": "class",
+   "sublabel": "State machine editor",
+   "row": 2,
+   "col": 0,
+   "attributes": [
+    {
+     "name": "view",
+     "type": "FsmView",
+     "visibility": "public"
+    },
+    {
+     "name": "scene",
+     "type": "FsmScene",
+     "visibility": "public"
+    },
+    {
+     "name": "table_pages",
+     "type": "TablePages",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/gui/main_window.py",
+     "line": 50,
+     "end_line": 66,
+     "label": "class MainWindow"
+    },
+    {
+     "path": "src/gui/main_window.py",
+     "line": 136,
+     "end_line": 140,
+     "label": "table pages"
+    }
+   ]
+  },
+  {
+   "id": "table_pages",
+   "label": "TablePages",
+   "kind": "class",
+   "sublabel": "Signals and Parameters pages",
+   "row": 2,
+   "col": 1,
+   "attributes": [
+    {
+     "name": "tables",
+     "type": "dict[str, _ListTable]",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "show_table",
+     "parameters": "which",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/gui/table_page.py",
+     "line": 70,
+     "end_line": 117,
+     "label": "class TablePages"
+    }
+   ]
+  },
+  {
+   "id": "design_unit",
+   "label": "DesignUnit",
+   "kind": "record",
+   "sublabel": "A module and its views",
+   "row": 1,
+   "col": 3,
+   "attributes": [
+    {
+     "name": "name",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "views",
+     "type": "list[View]",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "default_view",
+     "returns": "View",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/project/project.py",
+     "line": 77,
+     "end_line": 112,
+     "label": "class DesignUnit"
+    }
+   ]
+  },
+  {
+   "id": "fsm_view",
+   "label": "FsmView",
+   "kind": "record",
+   "sublabel": "State diagram model",
+   "row": 3,
+   "col": 0,
+   "attributes": [
+    {
+     "name": "signals",
+     "type": "list[Signal]",
+     "visibility": "public"
+    },
+    {
+     "name": "machines",
+     "type": "list[Machine]",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "save",
+     "parameters": "path",
+     "visibility": "public"
+    },
+    {
+     "name": "load",
+     "parameters": "path",
+     "returns": "FsmView",
+     "visibility": "public",
+     "static": true
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/model.py",
+     "line": 303,
+     "end_line": 330,
+     "label": "class FsmView"
+    },
+    {
+     "path": "src/model.py",
+     "line": 357,
+     "end_line": 366,
+     "label": "save / load"
+    }
+   ]
+  },
+  {
+   "id": "list_table",
+   "label": "_ListTable",
+   "kind": "class",
+   "sublabel": "Signals / Parameters table",
+   "row": 3,
+   "col": 1,
+   "methods": [
+    {
+     "name": "copy",
+     "returns": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "paste",
+     "visibility": "public"
+    },
+    {
+     "name": "paste_rows",
+     "parameters": "values",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/gui/tables.py",
+     "line": 841,
+     "end_line": 860,
+     "label": "class _ListTable"
+    },
+    {
+     "path": "src/gui/tables.py",
+     "line": 1062,
+     "end_line": 1110,
+     "label": "paste / paste_rows"
+    }
+   ]
+  },
+  {
+   "id": "view",
+   "label": "View",
+   "kind": "record",
+   "sublabel": "One view file of a unit",
+   "row": 2,
+   "col": 3,
+   "attributes": [
+    {
+     "name": "kind",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "path",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "legacy",
+     "type": "bool",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/project/project.py",
+     "line": 59,
+     "end_line": 70,
+     "label": "class View"
+    }
+   ]
+  },
+  {
+   "id": "block_diagram",
+   "label": "BlockDiagram",
+   "kind": "record",
+   "sublabel": "Block diagram model",
+   "row": 3,
+   "col": 2,
+   "attributes": [
+    {
+     "name": "signals",
+     "type": "list[Signal]",
+     "visibility": "public"
+    },
+    {
+     "name": "instances",
+     "type": "list[BdInstance]",
+     "visibility": "public"
+    },
+    {
+     "name": "wires",
+     "type": "list[BdWire]",
+     "visibility": "public"
+    }
+   ],
+   "methods": [
+    {
+     "name": "save",
+     "parameters": "path",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/bd_model.py",
+     "line": 242,
+     "end_line": 275,
+     "label": "class BlockDiagram"
+    },
+    {
+     "path": "src/bd_model.py",
+     "line": 296,
+     "end_line": 305,
+     "label": "save / load"
+    }
+   ]
+  },
+  {
+   "id": "signal",
+   "label": "Signal",
+   "kind": "record",
+   "sublabel": "One row of the Signals table",
+   "row": 4,
+   "col": 1,
+   "attributes": [
+    {
+     "name": "name",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "mode",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "type",
+     "type": "str",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/model.py",
+     "line": 20,
+     "end_line": 40,
+     "label": "class Signal"
+    }
+   ]
+  },
+  {
+   "id": "machine",
+   "label": "Machine",
+   "kind": "record",
+   "sublabel": "States and transitions",
+   "row": 4,
+   "col": 0,
+   "attributes": [
+    {
+     "name": "states",
+     "type": "list[State]",
+     "visibility": "public"
+    },
+    {
+     "name": "transitions",
+     "type": "list[Transition]",
+     "visibility": "public"
+    },
+    {
+     "name": "encoding",
+     "type": "str",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/model.py",
+     "line": 244,
+     "end_line": 265,
+     "label": "class Machine"
+    }
+   ]
+  },
+  {
+   "id": "bd_instance",
+   "label": "BdInstance",
+   "kind": "record",
+   "sublabel": "A component on the diagram",
+   "row": 4,
+   "col": 2,
+   "attributes": [
+    {
+     "name": "unit",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "pins",
+     "type": "list[BdPin]",
+     "visibility": "public"
+    },
+    {
+     "name": "x, y, w, h",
+     "type": "float",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/bd_model.py",
+     "line": 39,
+     "end_line": 60,
+     "label": "class BdInstance"
+    }
+   ]
+  },
+  {
+   "id": "bd_wire",
+   "label": "BdWire",
+   "kind": "record",
+   "sublabel": "A net segment between ports",
+   "row": 4,
+   "col": 3,
+   "attributes": [
+    {
+     "name": "net",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "start, end",
+     "type": "str",
+     "visibility": "public"
+    },
+    {
+     "name": "points",
+     "type": "list[list[float]]",
+     "visibility": "public"
+    }
+   ],
+   "sources": [
+    {
+     "path": "src/bd_model.py",
+     "line": 148,
+     "end_line": 165,
+     "label": "class BdWire"
+    }
+   ]
+  }
+ ],
+ "relationships": [
+  {
+   "id": "dm_project",
+   "from": "design_manager",
+   "to": "project",
+   "kind": "association",
+   "label": "opens"
+  },
+  {
+   "id": "dm_ctx",
+   "from": "design_manager",
+   "to": "editor_context",
+   "kind": "dependency",
+   "label": "creates"
+  },
+  {
+   "id": "ctx_library",
+   "from": "editor_context",
+   "to": "library",
+   "kind": "association",
+   "label": "edits in"
+  },
+  {
+   "id": "bd_ctx",
+   "from": "bd_window",
+   "to": "editor_context",
+   "kind": "association",
+   "label": "context"
+  },
+  {
+   "id": "fsm_ctx",
+   "from": "fsm_window",
+   "to": "editor_context",
+   "kind": "association",
+   "label": "context"
+  },
+  {
+   "id": "bd_tables",
+   "from": "bd_window",
+   "to": "table_pages",
+   "kind": "composition"
+  },
+  {
+   "id": "fsm_tables",
+   "from": "fsm_window",
+   "to": "table_pages",
+   "kind": "composition"
+  },
+  {
+   "id": "pages_tables",
+   "from": "table_pages",
+   "to": "list_table",
+   "kind": "composition"
+  },
+  {
+   "id": "table_signals",
+   "from": "list_table",
+   "to": "signal",
+   "kind": "association",
+   "label": "rows"
+  },
+  {
+   "id": "project_libs",
+   "from": "project",
+   "to": "library",
+   "kind": "composition"
+  },
+  {
+   "id": "lib_units",
+   "from": "library",
+   "to": "design_unit",
+   "kind": "composition"
+  },
+  {
+   "id": "unit_views",
+   "from": "design_unit",
+   "to": "view",
+   "kind": "composition"
+  },
+  {
+   "id": "fsm_model",
+   "from": "fsm_window",
+   "to": "fsm_view",
+   "kind": "association",
+   "label": "edits"
+  },
+  {
+   "id": "bd_model",
+   "from": "bd_window",
+   "to": "block_diagram",
+   "kind": "association",
+   "label": "edits"
+  },
+  {
+   "id": "fsm_machines",
+   "from": "fsm_view",
+   "to": "machine",
+   "kind": "composition"
+  },
+  {
+   "id": "fsm_signals",
+   "from": "fsm_view",
+   "to": "signal",
+   "kind": "composition"
+  },
+  {
+   "id": "bd_signals",
+   "from": "block_diagram",
+   "to": "signal",
+   "kind": "composition"
+  },
+  {
+   "id": "bd_instances",
+   "from": "block_diagram",
+   "to": "bd_instance",
+   "kind": "composition"
+  },
+  {
+   "id": "bd_wires",
+   "from": "block_diagram",
+   "to": "bd_wire",
+   "kind": "composition"
+  }
+ ]
+}
